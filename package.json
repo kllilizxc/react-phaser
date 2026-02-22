@@ -1,0 +1,39 @@
+{
+  "name": "@realizer/react-phaser",
+  "version": "0.1.0",
+  "description": "A custom React-style Phaser renderer, providing a declarative way to build scenes with VNodes and hooks.",
+  "type": "module",
+  "main": "./dist/react-phaser.umd.cjs",
+  "module": "./dist/react-phaser.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/react-phaser.js",
+      "require": "./dist/react-phaser.umd.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && tsc -p tsconfig.json --emitDeclarationOnly",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "peerDependencies": {
+    "phaser": "^3.80.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.0",
+    "@vitest/coverage-v8": "^4.0.18",
+    "phaser": "^3.80.1",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.2",
+    "vitest": "^4.0.18"
+  }
+}
