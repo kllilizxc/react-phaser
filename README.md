@@ -27,7 +27,8 @@ npm install @realiz3r/react-phaser
 > This library requires **Phaser 3.60+** and targets **ES2020+**.
 
 ## 📖 Quick Start
-Demo project: https://github.com/kllilizxc/SpaceShooterGame
+
+Demo project: [SpaceShooterGame](https://github.com/kllilizxc/SpaceShooterGame)
 
 ```typescript
 import { mountRoot, createNode, useUpdate, useRef } from '@realiz3r/react-phaser';
@@ -58,30 +59,32 @@ class GameScene extends Phaser.Scene {
 
 ### VNode Primitives
 
-| Type | Description |
-| :--- | :--- |
-| `container` | Groups children into a `Phaser.GameObjects.Container`. |
-| `text` | Renders a `Phaser.GameObjects.Text`. |
-| `sprite` / `image`| Renders standard textures. |
-| `rect` / `graphics`| Renders graphics-backed shapes. |
-| `physics-sprite` | Arcade Physics enabled sprite. |
-| `physics-group` | Managed Arcade Group for pooling (highly recommended for bullets/enemies). |
-| `fragment` | Groups children without creating a Phaser GameObject (transparent wrapper). |
+| Type | Description | Key Props |
+| :--- | :--- | :--- |
+| `container` | Groups children into a `Phaser.GameObjects.Container`. | `x`, `y`, `width`/`height`, `interactive` |
+| `text` | Renders a `Phaser.GameObjects.Text`. | `text`, `fontSize`, `color`, `wordWrapWidth` |
+| `sprite` / `image`| Renders standard textures. | `texture`, `frame`, `tint`, `flipX`/`flipY` |
+| `rect` / `graphics`| Renders graphics-backed shapes. | `fill`, `lineColor`, `strokeWidth` |
+| `physics-sprite` | Arcade Physics enabled sprite. | `velocityX`/`Y`, `bounce`, `drag`, `gravityY` |
+| `physics-group` | Managed Arcade Group for pooling. | `config` (Phaser Group Config) |
+| `fragment` | Transparent wrapper for multiple children. | (None) |
 
 ### Hooks Reference
 
 | Hook | Description |
 | :--- | :--- |
 | `useState<T>(initial)` | Standard state management. |
-| `useUpdate(callback)` | Runs the callback on Phaser's `update` event. |
+| `useUpdate(callback)` | Runs every frame on Phaser's `update` event. |
 | `useStore(hook, selector?)`| Subscribes to a `game-state` store. |
 | `useRef<T>(initial)` | Persistent reference to Phaser GameObjects. |
-| `useMemo` / `useCallback` | Memoize values and functions. |
+| `useMemo` / `useCallback` | Performance optimization for values and functions. |
 | `useEvent(handler)` | Stable identity for event callbacks. |
 | `useScene()` | Access the current `Phaser.Scene`. |
 | `useEffect(cb, deps)` | Side effects after render (asynchronous). |
 | `useLayoutEffect(cb, deps)`| Side effects before Phaser commits updates. |
-| `onMount(cb)` | Utility for one-time initialization. |
+| `onMount(cb)` | Utility for one-time initialization logic. |
+
+---
 
 ## 📦 State Management (`game-state`)
 
@@ -117,21 +120,55 @@ function ScoreDisplay() {
 }
 ```
 
+---
+
 ## 🚀 Optimized Pooling
 
 Using `physics-group` allows you to manage hundreds of objects with minimal GC pressure.
 
 ```typescript
+function Bullet({ x, y }: { x: number, y: number }) {
+  return createNode('physics-sprite', { x, y, texture: 'bullet' });
+}
+
 function BulletSpawner() {
   const bullets = useStore(useBulletStore);
 
-  return createNode('physics-group', { config: { classType: Bullet } },
-    bullets.map(b => (
-      createNode('physics-sprite', { key: b.id, x: b.x, y: b.y, texture: 'bullet' })
-    ))
+  return createNode('physics-group', {
+    config: { 
+      classType: Phaser.Physics.Arcade.Sprite, 
+      maxSize: 100, 
+      defaultKey: null 
+    }
+  },
+    ...bullets.map(b => createNode(Bullet, {
+      key: b.id,
+      ...b
+    }))
   );
 }
 ```
+
+---
+
+## 🔍 Debugging & Tooling
+
+The library provides built-in tools for state inspection and travel.
+
+### State Snapshotting
+Access the global state and logs via the `GameState` manager:
+
+```typescript
+import { GameState } from '@realiz3r/react-phaser';
+
+// Get a snapshot of all registered stores
+const currentWorldState = GameState.snapshot();
+
+// Export state and action logs for bug reporting
+console.log(GameState.dump());
+```
+
+---
 
 ## 🤝 Contributing
 
