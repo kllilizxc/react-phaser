@@ -39,5 +39,29 @@ describe("game-state GameStateManager", () => {
         expect(parsed.snapshot).toEqual({ x: { n: 7 } });
         expect(parsed.log).toEqual([m]);
     });
-});
 
+    it("config() can disable logging", () => {
+        const mgr = new GameStateManager();
+        mgr.config({ loggingEnabled: false });
+
+        const m: Mutation = { t: 1, store: "x", action: "set", changes: [{ key: "n", old: 0, new: 1 }] };
+        mgr.addLog(m);
+        expect(mgr.getLog()).toEqual([]);
+    });
+
+    it("config() trims the log when reducing maxLogSize", () => {
+        const mgr = new GameStateManager();
+
+        for (let i = 0; i < 5; i++) {
+            const m: Mutation = { t: i, store: "s", action: "a", changes: [{ key: "n", old: i - 1, new: i }] };
+            mgr.addLog(m);
+        }
+        expect(mgr.getLog()).toHaveLength(5);
+
+        mgr.config({ maxLogSize: 3 });
+        const log = mgr.getLog();
+        expect(log).toHaveLength(3);
+        expect(log[0].t).toBe(2);
+        expect(log[2].t).toBe(4);
+    });
+});

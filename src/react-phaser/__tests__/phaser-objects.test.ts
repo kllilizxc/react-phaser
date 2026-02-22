@@ -11,10 +11,15 @@ describe("react-phaser phaser-objects", () => {
         expect(createPhaserObject(scene as any, "text", { x: 1, y: 2, text: "hi" })).toBeInstanceOf(Phaser.GameObjects.Text);
         expect(createPhaserObject(scene as any, "graphics", {})).toBeInstanceOf(Phaser.GameObjects.Graphics);
         expect(createPhaserObject(scene as any, "rect", {})).toBeInstanceOf(Phaser.GameObjects.Graphics);
-        expect(createPhaserObject(scene as any, "sprite", { texture: "t" })).toBeInstanceOf(Phaser.GameObjects.Sprite);
-        expect(createPhaserObject(scene as any, "image", { texture: "t" })).toBeInstanceOf(Phaser.GameObjects.Image);
-        expect(createPhaserObject(scene as any, "physics-sprite", { texture: "t" })).toBeInstanceOf(Phaser.Physics.Arcade.Sprite);
+        expect(createPhaserObject(scene as any, "sprite", { x: 1, y: 2, texture: "t" })).toBeInstanceOf(Phaser.GameObjects.Sprite);
+        expect(createPhaserObject(scene as any, "image", { x: 1, y: 2, texture: "t" })).toBeInstanceOf(Phaser.GameObjects.Image);
+        expect(createPhaserObject(scene as any, "physics-sprite", { x: 1, y: 2, texture: "t" })).toBeInstanceOf(Phaser.Physics.Arcade.Sprite);
         expect(createPhaserObject(scene as any, "physics-group", { config: {} })).toBeInstanceOf(Phaser.Physics.Arcade.Group);
+    });
+
+    it("createPhaserObject supports wordWrap defaults for text nodes", () => {
+        const scene = createMockScene();
+        expect(createPhaserObject(scene as any, "text", { text: "hi", wordWrapWidth: 100 })).toBeInstanceOf(Phaser.GameObjects.Text);
     });
 
     it("createPhaserObject throws on unknown node types", () => {
@@ -97,6 +102,17 @@ describe("react-phaser phaser-objects", () => {
         expect(obj.body.setOffset).toHaveBeenCalledWith(1, 2);
     });
 
+    it("defaults missing bodyOffsetX/bodyOffsetY to 0 when only one is provided", () => {
+        const obj = new Phaser.Physics.Arcade.Sprite({} as any, 0, 0, undefined as any);
+
+        updatePhaserObject(obj as any, "physics-sprite", { bodyOffsetY: 2 }, {}, true);
+        expect(obj.body.setOffset).toHaveBeenLastCalledWith(0, 2);
+
+        obj.body.setOffset.mockClear();
+        updatePhaserObject(obj as any, "physics-sprite", { bodyOffsetX: 3 }, {}, true);
+        expect(obj.body.setOffset).toHaveBeenLastCalledWith(3, 0);
+    });
+
     it("draws rect strokes when strokeWidth and lineColor are provided", () => {
         const obj = new Phaser.GameObjects.Graphics({} as any);
         const lineStyle = vi.spyOn(obj as any, "lineStyle");
@@ -150,6 +166,34 @@ describe("react-phaser phaser-objects", () => {
         expect(body.setSize).toHaveBeenCalledWith(5, 6, true);
     });
 
+    it("uses scale/origin fallbacks when computing body size ratios", () => {
+        const obj = new Phaser.Physics.Arcade.Sprite({} as any, 0, 0, undefined as any);
+        obj.width = 10;
+        obj.height = 20;
+        obj.displayWidth = 40;
+        obj.displayHeight = 60;
+        obj.scaleX = 2;
+        obj.originX = 0.25;
+        obj.originY = 0.75;
+
+        updatePhaserObject(obj as any, "physics-sprite", { bodyWidthRatio: 0.5, bodyHeightRatio: 0.25 }, {}, false);
+        expect(obj.body.setSize).toHaveBeenCalledWith(10, 10, true);
+        expect(obj.body.setOffset).toHaveBeenCalledWith(10, -15);
+
+        const obj2 = new Phaser.Physics.Arcade.Sprite({} as any, 0, 0, undefined as any);
+        obj2.width = 10;
+        obj2.height = 20;
+        obj2.displayWidth = 40;
+        obj2.displayHeight = 60;
+        obj2.scaleX = undefined as any;
+        obj2.originX = undefined as any;
+        obj2.originY = undefined as any;
+
+        updatePhaserObject(obj2 as any, "physics-sprite", { bodyWidthRatio: 0.5, bodyHeightRatio: 0.25 }, {}, false);
+        expect(obj2.body.setSize).toHaveBeenCalledWith(5, 5, true);
+        expect(obj2.body.setOffset).not.toHaveBeenCalled();
+    });
+
     it("falls back to text style wordWrap when setWordWrapWidth is missing", () => {
         const setWordWrapWidth = vi.fn();
         const obj: any = { style: { setWordWrapWidth } };
@@ -180,6 +224,80 @@ describe("react-phaser phaser-objects", () => {
 
         expect(setRotation).toHaveBeenCalledWith(1);
         expect(setRotation).toHaveBeenCalledWith(0);
+    });
+
+    it("sets and clears tint for sprites", () => {
+        const obj = new Phaser.GameObjects.Sprite({} as any, 0, 0, undefined as any);
+        const setTint = vi.spyOn(obj as any, "setTint");
+        const clearTint = vi.spyOn(obj as any, "clearTint");
+
+        updatePhaserObject(obj as any, "sprite", { tint: 0x00ff00 }, {}, true);
+        expect(setTint).toHaveBeenCalledWith(0x00ff00);
+
+        updatePhaserObject(obj as any, "sprite", {}, { tint: 0x00ff00 }, false);
+        expect(clearTint).toHaveBeenCalled();
+    });
+
+    it("plays and stops animations when play prop changes", () => {
+        const obj = new Phaser.GameObjects.Sprite({} as any, 0, 0, undefined as any);
+        const play = vi.spyOn(obj as any, "play");
+        const stop = vi.spyOn(obj as any, "stop");
+
+        updatePhaserObject(obj as any, "sprite", { play: "walk" }, {}, true);
+        expect(play).toHaveBeenCalledWith("walk", true);
+
+        updatePhaserObject(obj as any, "sprite", {}, { play: "walk" }, false);
+        expect(stop).toHaveBeenCalled();
+    });
+
+    it("falls back to stop() when play is set but play() is missing", () => {
+        const sprite = new Phaser.GameObjects.Sprite({} as any, 0, 0, undefined as any);
+        (sprite as any).play = undefined;
+        const stopSprite = vi.spyOn(sprite as any, "stop");
+        updatePhaserObject(sprite as any, "sprite", { play: "walk" }, {}, false);
+        expect(stopSprite).toHaveBeenCalled();
+
+        const physicsSprite = new Phaser.Physics.Arcade.Sprite({} as any, 0, 0, undefined as any);
+        (physicsSprite as any).play = undefined;
+        const stopPhysicsSprite = vi.spyOn(physicsSprite as any, "stop");
+        updatePhaserObject(physicsSprite as any, "physics-sprite", { play: "run" }, {}, false);
+        expect(stopPhysicsSprite).toHaveBeenCalled();
+    });
+
+    it("sets/clears tint and plays/stops animations for physics-sprites", () => {
+        const obj = new Phaser.Physics.Arcade.Sprite({} as any, 0, 0, undefined as any);
+        const setTint = vi.spyOn(obj as any, "setTint");
+        const clearTint = vi.spyOn(obj as any, "clearTint");
+        const play = vi.spyOn(obj as any, "play");
+        const stop = vi.spyOn(obj as any, "stop");
+
+        updatePhaserObject(obj as any, "physics-sprite", { tint: 0xff00ff, play: "run" }, {}, true);
+        expect(setTint).toHaveBeenCalledWith(0xff00ff);
+        expect(play).toHaveBeenCalledWith("run", true);
+
+        updatePhaserObject(obj as any, "physics-sprite", {}, { tint: 0xff00ff, play: "run" }, false);
+        expect(clearTint).toHaveBeenCalled();
+        expect(stop).toHaveBeenCalled();
+    });
+
+    it("treats explicit undefined custom props as removals and does not re-set them", () => {
+        const obj = new Phaser.GameObjects.Sprite({} as any, 0, 0, undefined as any);
+
+        updatePhaserObject(obj as any, "sprite", { foo: "bar" }, {}, true);
+        expect(obj.getData("foo")).toBe("bar");
+
+        updatePhaserObject(obj as any, "sprite", { foo: undefined }, { foo: "bar" }, false);
+        expect(obj.getData("foo")).toBeUndefined();
+    });
+
+    it("does not require setData() for custom prop sync", () => {
+        const obj: any = {
+            foo: 0,
+            data: { remove: vi.fn() },
+        };
+
+        updatePhaserObject(obj, "direct", { foo: 123 }, {}, true);
+        expect(obj.foo).toBe(123);
     });
 
     it("warns about container hit areas when interactive=true without width/height", () => {

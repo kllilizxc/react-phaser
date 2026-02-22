@@ -34,6 +34,28 @@ describe("react-phaser reconciler", () => {
         expect(destroySpy).toHaveBeenCalledTimes(1);
     });
 
+    it("does not clear refs that no longer point at the removed host object", () => {
+        const scene = createMockScene();
+
+        const spriteRef = { current: null as Phaser.GameObjects.Sprite | null };
+
+        function App(props: { show: boolean }) {
+            return createNode(
+                "container",
+                {},
+                props.show ? createNode("sprite", { ref: spriteRef, texture: "t" }) : null
+            );
+        }
+
+        const root = mountRoot(scene as any, App, { show: true });
+        const otherSprite = scene.add.sprite(0, 0);
+        spriteRef.current = otherSprite;
+
+        root.update({ show: false });
+        expect(spriteRef.current).toBe(otherSprite);
+        root.unmount();
+    });
+
     it("clears old refs when a node is replaced by a different type", () => {
         const scene = createMockScene();
 
@@ -107,6 +129,44 @@ describe("react-phaser reconciler", () => {
         root.update({ order: ["b", "a"] });
         expect(container.getIndex(b)).toBe(0);
         expect(container.getIndex(a)).toBe(1);
+        root.unmount();
+    });
+
+    it("reorders component-rendered children under a container (skipping null children)", () => {
+        const scene = createMockScene();
+        const containerRef = { current: null as Phaser.GameObjects.Container | null };
+
+        const aRef = { current: null as Phaser.GameObjects.Sprite | null };
+        const bRef = { current: null as Phaser.GameObjects.Sprite | null };
+
+        function SpriteChild(props: { id: "a" | "b" }) {
+            const ref = props.id === "a" ? aRef : bRef;
+            return createNode("sprite", { ref, texture: "t" });
+        }
+
+        function NullChild() {
+            return null;
+        }
+
+        function App(props: { order: ("a" | "b")[] }) {
+            const children = props.order.map((id) => createNode(SpriteChild, { key: id, id }));
+            // Ensure reordering logic tolerates component instances with no host output.
+            children.splice(1, 0, createNode(NullChild, { key: "nil" }));
+            return createNode("container", { ref: containerRef }, ...children);
+        }
+
+        const root = mountRoot(scene as any, App, { order: ["a", "b"] });
+        const container = containerRef.current!;
+
+        expect(aRef.current).toBeTruthy();
+        expect(bRef.current).toBeTruthy();
+        expect(container.getIndex(aRef.current!)).toBe(0);
+        expect(container.getIndex(bRef.current!)).toBe(1);
+
+        root.update({ order: ["b", "a"] });
+        expect(container.getIndex(bRef.current!)).toBe(0);
+        expect(container.getIndex(aRef.current!)).toBe(1);
+
         root.unmount();
     });
 
@@ -209,6 +269,56 @@ describe("react-phaser reconciler", () => {
                         createNode("sprite", { ref: spriteRef, texture: "t" })
                     )
                     : null
+            );
+        }
+
+        const root = mountRoot(scene as any, App, { show: true });
+        const sprite = spriteRef.current as any;
+        const destroySpy = vi.spyOn(sprite, "destroy");
+
+        root.update({ show: false });
+
+        expect(spriteRef.current).toBeNull();
+        expect(destroySpy).toHaveBeenCalledTimes(1);
+        root.unmount();
+    });
+
+    it("unmounts removed component children under containers", () => {
+        const scene = createMockScene();
+        const spriteRef = { current: null as Phaser.GameObjects.Sprite | null };
+
+        function Child() {
+            return createNode("sprite", { ref: spriteRef, texture: "t" });
+        }
+
+        function App(props: { show: boolean }) {
+            return createNode(
+                "container",
+                {},
+                props.show ? createNode(Child, { key: "child" }) : null
+            );
+        }
+
+        const root = mountRoot(scene as any, App, { show: true });
+        const sprite = spriteRef.current as any;
+        const destroySpy = vi.spyOn(sprite, "destroy");
+
+        root.update({ show: false });
+
+        expect(spriteRef.current).toBeNull();
+        expect(destroySpy).toHaveBeenCalledTimes(1);
+        root.unmount();
+    });
+
+    it("destroys removed host children under containers", () => {
+        const scene = createMockScene();
+        const spriteRef = { current: null as Phaser.GameObjects.Sprite | null };
+
+        function App(props: { show: boolean }) {
+            return createNode(
+                "container",
+                {},
+                props.show ? createNode("sprite", { ref: spriteRef, texture: "t" }) : null
             );
         }
 
@@ -366,6 +476,60 @@ describe("react-phaser reconciler", () => {
         expect(destroySpy).not.toHaveBeenCalled();
         expect(sprite.body.stop).toHaveBeenCalled();
         expect(sprite.body.setEnable).toHaveBeenCalledWith(false);
+        root.unmount();
+    });
+
+    it("unmounts nested component subtrees inside physics-groups", () => {
+        const scene = createMockScene();
+
+        const groupRef = { current: null as Phaser.Physics.Arcade.Group | null };
+        const spriteRef = { current: null as Phaser.Physics.Arcade.Sprite | null };
+
+        function Inner() {
+            return createNode("physics-sprite", { ref: spriteRef, texture: "t" });
+        }
+
+        function Outer() {
+            return createNode(Inner, {});
+        }
+
+        function App(props: { show: boolean }) {
+            return createNode(
+                "physics-group",
+                { ref: groupRef, config: {} },
+                props.show ? createNode(Outer, { key: "a" }) : null
+            );
+        }
+
+        const root = mountRoot(scene as any, App, { show: true });
+        const sprite = spriteRef.current as any;
+
+        root.update({ show: false });
+
+        expect(sprite.body.stop).toHaveBeenCalled();
+        expect(sprite.body.setEnable).toHaveBeenCalledWith(false);
+        expect(sprite.active).toBe(false);
+        expect(sprite.visible).toBe(false);
+        root.unmount();
+    });
+
+    it("skips saving pooled children when group.get() returns null", () => {
+        const scene = createMockScene();
+
+        const group = scene.physics.add.group() as any;
+        group.get.mockReturnValueOnce(null);
+
+        function App() {
+            return createNode(
+                group,
+                {},
+                createNode("physics-sprite", { key: "a", texture: "t" })
+            );
+        }
+
+        const root = mountRoot(scene as any, App, {});
+        expect(group.get).toHaveBeenCalledTimes(1);
+        expect((group as any).__v_children).toEqual([]);
         root.unmount();
     });
 
