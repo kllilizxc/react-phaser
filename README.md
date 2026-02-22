@@ -155,6 +155,18 @@ function BulletSpawner() {
 
 The library provides built-in tools for state inspection and travel.
 
+### Configuration
+You can customize the behavior of the state manager:
+
+```typescript
+import { GameState } from '@realiz3r/react-phaser';
+
+GameState.config({
+  loggingEnabled: true, // Set to false to disable action logging
+  maxLogSize: 500       // Customize the number of mutations to keep in memory (default: 1000)
+});
+```
+
 ### State Snapshotting
 Access the global state and logs via the `GameState` manager:
 
