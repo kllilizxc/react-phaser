@@ -1,5 +1,5 @@
 {
-  "name": "@realizer/react-phaser",
+  "name": "@realiz3r/react-phaser",
   "version": "0.1.0",
   "description": "A custom React-style Phaser renderer, providing a declarative way to build scenes with VNodes and hooks.",
   "type": "module",
