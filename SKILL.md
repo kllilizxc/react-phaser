@@ -1,6 +1,6 @@
 ---
 name: react-phaser
-description: Use when working with React-style Phaser renderer package named react-phaser, including creating/updating VNodes with createNode(), mounting a root component with mountRoot(), using hooks (useStore/useUpdate/useEffect/useLayoutEffect/useRef/useScene/useState/onMount), working with physics groups and pooled sprites, wiring refs and interactivity, and syncing gameplay metadata via props/Data Manager.
+description: Use when working with React-style Phaser renderer package name '@realiz3r/react-phaser', including creating/updating VNodes with createNode(), mounting a root component with mountRoot(), using hooks (useStore/useUpdate/useEffect/useLayoutEffect/useRef/useScene/useState/onMount/useMemo/useCallback/useEvent), working with fragments, working with physics groups and pooled sprites, wiring refs and interactivity, and syncing gameplay metadata via props/Data Manager.
 ---
 
 # React Phaser
@@ -27,6 +27,7 @@ Supported built-in `type` strings and common props (see `src/lib/react-phaser.ts
 - `image` / `sprite`: `x`, `y`, `texture`, `frame`, `scale`, `tint`, `flipX`, `flipY`, `play`.
 - `physics-sprite`: sprite props plus `velocityX`, `velocityY`, `collideWorldBounds`, `bounce`, `drag`, `gravityY`, `immovable`, body sizing (`bodyWidthRatio/bodyHeightRatio` or `bodyWidth/bodyHeight`, `bodyOffsetX/bodyOffsetY`).
 - `physics-group`: pooled `Arcade.Sprite` group; pass `{ config }` and render `physics-sprite` children.
+- `fragment`: group children without creating a Phaser GameObject (similar to React Fragments).
 
 Also supported:
 
@@ -53,6 +54,8 @@ Also supported:
 - `useEffect` / `useLayoutEffect`: attach/detach listeners, set methods on sprites, subscribe to stores, etc.
 - `useScene`: access the current `Phaser.Scene` from inside a component.
 - `onMount`: run once after first commit; return cleanup if needed (see `LevelUpPanel.ts`).
+- `useMemo(factory, deps)` / `useCallback(cb, deps)`: memoize values or functions.
+- `useEvent(handler)`: get a stable identity for a callback that always points to the latest handler logic.
 
 ## Interactivity and pointer events
 
