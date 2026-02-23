@@ -155,6 +155,7 @@ Arcade Physics collisions use the **Body**, not just the visual sprite position.
 If you move an Arcade Physics sprite *after* the physics step (common when moving things in `useUpdate`), the body can lag behind for a frame unless you resync it.
 
 - Declarative updates: `physics-sprite` prop updates (`x`/`y`, `scale`, `origin`, body sizing) trigger a body sync.
+- Body ratio defaults: `bodyWidthRatio`/`bodyHeightRatio` default to `1` when omitted (unless explicit `bodyWidth`/`bodyHeight` are provided).
 - Imperative updates: prefer `sprite.setPosition(...)` / `setX(...)` / `setY(...)` (React Phaser patches managed Arcade Sprites to call `body.updateFromGameObject()`).
 - If you directly assign `sprite.x = ...` / `sprite.y = ...`, call `sprite.body.updateFromGameObject()` afterward.
 

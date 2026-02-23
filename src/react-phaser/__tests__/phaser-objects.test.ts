@@ -298,6 +298,28 @@ describe("react-phaser phaser-objects", () => {
         expect(obj.body.setOffset).toHaveBeenCalledWith(1, 2);
     });
 
+    it("defaults body ratios to 1 when omitted", () => {
+        const obj = new Phaser.Physics.Arcade.Sprite({} as any, 0, 0, undefined as any);
+        obj.width = 10;
+        obj.height = 20;
+
+        updatePhaserObject(obj as any, "physics-sprite", {}, {}, true);
+        expect(obj.body.setSize).toHaveBeenCalledWith(10, 20, true);
+    });
+
+    it("defaults the missing ratio axis to 1", () => {
+        const obj = new Phaser.Physics.Arcade.Sprite({} as any, 0, 0, undefined as any);
+        obj.width = 10;
+        obj.height = 20;
+
+        updatePhaserObject(obj as any, "physics-sprite", { bodyWidthRatio: 0.5 }, {}, true);
+        expect(obj.body.setSize).toHaveBeenCalledWith(5, 20, true);
+
+        obj.body.setSize.mockClear();
+        updatePhaserObject(obj as any, "physics-sprite", { bodyHeightRatio: 0.25 }, {}, true);
+        expect(obj.body.setSize).toHaveBeenCalledWith(10, 5, true);
+    });
+
     it("syncs Arcade bodies when physics-sprites move", () => {
         const obj = new Phaser.Physics.Arcade.Sprite({} as any, 0, 0, undefined as any);
         const updateFromGameObject = vi.fn();

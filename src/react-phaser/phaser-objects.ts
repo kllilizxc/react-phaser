@@ -487,14 +487,29 @@ export function updatePhaserObject(obj: any, type: string, newProps: any, oldPro
             if (applyDefaultsOnMount || newProps.gravityY !== oldProps.gravityY) obj.setGravityY(newProps.gravityY ?? 0);
             if (applyDefaultsOnMount || newProps.immovable !== oldProps.immovable) obj.setImmovable(newProps.immovable ?? false);
 
-            if (applyDefaultsOnMount || newProps.texture !== oldProps.texture || newProps.frame !== oldProps.frame || newProps.bodyWidthRatio !== oldProps.bodyWidthRatio || newProps.bodyHeightRatio !== oldProps.bodyHeightRatio) {
-                if (newProps.bodyWidthRatio !== undefined && newProps.bodyHeightRatio !== undefined) {
+            const hasExplicitBodySize = newProps.bodyWidth !== undefined || newProps.bodyHeight !== undefined;
+            const oldHasExplicitBodySize = oldProps.bodyWidth !== undefined || oldProps.bodyHeight !== undefined;
+            const effectiveBodyWidthRatio = hasExplicitBodySize ? undefined : (newProps.bodyWidthRatio ?? 1);
+            const effectiveBodyHeightRatio = hasExplicitBodySize ? undefined : (newProps.bodyHeightRatio ?? 1);
+            const oldEffectiveBodyWidthRatio = oldHasExplicitBodySize ? undefined : (oldProps.bodyWidthRatio ?? 1);
+            const oldEffectiveBodyHeightRatio = oldHasExplicitBodySize ? undefined : (oldProps.bodyHeightRatio ?? 1);
+
+            if (
+                applyDefaultsOnMount ||
+                newProps.texture !== oldProps.texture ||
+                newProps.frame !== oldProps.frame ||
+                newProps.bodyWidth !== oldProps.bodyWidth ||
+                newProps.bodyHeight !== oldProps.bodyHeight ||
+                effectiveBodyWidthRatio !== oldEffectiveBodyWidthRatio ||
+                effectiveBodyHeightRatio !== oldEffectiveBodyHeightRatio
+            ) {
+                if (effectiveBodyWidthRatio !== undefined && effectiveBodyHeightRatio !== undefined) {
                     // Arcade body sizes are specified in *source* pixels. The physics body will
                     // automatically scale with the Sprite, so do not multiply by `scale` here.
                     const baseW = typeof obj.width === "number" ? obj.width : 0;
                     const baseH = typeof obj.height === "number" ? obj.height : 0;
-                    const targetW = Math.max(1, baseW * newProps.bodyWidthRatio);
-                    const targetH = Math.max(1, baseH * newProps.bodyHeightRatio);
+                    const targetW = Math.max(1, baseW * effectiveBodyWidthRatio);
+                    const targetH = Math.max(1, baseH * effectiveBodyHeightRatio);
 
                     if (typeof obj.setBodySize === "function") {
                         obj.setBodySize(targetW, targetH, true);
