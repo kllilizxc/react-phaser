@@ -5,6 +5,7 @@ import { cleanupPooledSpriteDetached, createFragmentInstance, createHostSlot, is
 import type { FragmentInstance, HostSlot, ParentHandle } from "./host";
 import type { PhaserHost, VNode } from "./types";
 import { createPhaserObject, updatePhaserObject } from "./phaser-objects";
+import { ensureArcadeBodySyncPatched } from "./arcade-body-sync";
 
 type InstanceChild = PhaserHost | ComponentInstance | HostSlot<PhaserHost> | FragmentInstance;
 
@@ -404,6 +405,84 @@ function reconcile(
         const oldChildrenData: InstanceChild[] = (childrenOwnerNow as any)?.__v_children || [];
         const newChildrenData: InstanceChild[] = [];
 
+        const scheduleChildrenCleanup = (removedChildren: InstanceChild[]) => {
+            if (removedChildren.length === 0) return;
+
+            commitQueue.ops.push(() => {
+                const host = resolveHost(parentContainerHandle as any) as any;
+                const group = (!isFragment && host instanceof Phaser.Physics.Arcade.Group) ? (host as Phaser.Physics.Arcade.Group) : null;
+
+                const cleanupPooledSprite = (sprite: Phaser.Physics.Arcade.Sprite) => {
+                    if (!group) return;
+                    group.killAndHide(sprite);
+                    if (sprite.body) {
+                        sprite.body.stop();
+                        (sprite.body as Phaser.Physics.Arcade.Body).setEnable(false);
+                    }
+                };
+
+                const clearRefs = (obj: InstanceChild | null) => {
+                    if (!obj) return;
+
+                    // ComponentInstance unmount clears VNode refs.
+                    if (obj instanceof ComponentInstance) return;
+
+                    if (isFragmentInstance(obj)) {
+                        const children = Array.isArray(obj.__v_children) ? obj.__v_children : [];
+                        for (const child of children) clearRefs(child as any);
+                        return;
+                    }
+
+                    const resolved = resolveHost(obj as any) as any;
+                    if (!resolved) return;
+
+                    const ref = resolved.__v_props?.ref;
+                    if (ref && typeof ref === "object" && "current" in ref) {
+                        if ((ref as any).current === resolved) {
+                            (ref as any).current = null;
+                        }
+                    }
+                };
+
+                for (const childObj of removedChildren) {
+                    clearRefs(childObj);
+
+                    if (group) {
+                        if (isFragmentInstance(childObj)) {
+                            destroyInstanceChildTree(childObj);
+                            continue;
+                        }
+
+                        if (childObj instanceof ComponentInstance) {
+                            const phaserNode = (childObj.phaserObject instanceof ComponentInstance) ? null : childObj.phaserObject;
+                            const isPooled = !!(phaserNode as any)?.__v_pooled;
+                            childObj.unmount();
+                            if (isPooled && phaserNode instanceof Phaser.Physics.Arcade.Sprite) {
+                                cleanupPooledSprite(phaserNode);
+                            }
+                            continue;
+                        }
+
+                        const sprite = resolveHost(childObj as any) as Phaser.Physics.Arcade.Sprite | null;
+                        const isPooled = !!(sprite as any)?.__v_pooled;
+                        if (sprite) {
+                            if (isPooled) cleanupPooledSprite(sprite);
+                            else sprite.destroy();
+                        }
+                        continue;
+                    }
+
+                    // Non-group container cleanup
+                    if (childObj instanceof ComponentInstance) childObj.unmount();
+                    else if (isFragmentInstance(childObj)) destroyInstanceChildTree(childObj);
+                    else {
+                        const childHost = resolveHost(childObj as any) as Phaser.GameObjects.GameObject | null;
+                        if (childHost) childHost.destroy();
+                    }
+                }
+            });
+        };
+
         if (DEV) {
             let keyed = 0;
             let unkeyed = 0;
@@ -450,6 +529,25 @@ function reconcile(
             }
         }
 
+        // For physics-groups: pre-clean keyed children that are removed this render, so pooling can safely
+        // reuse them within the same commit without a later cleanup killing the reused sprite.
+        if (isGroup) {
+            const nextKeys = new Set<string | number>();
+            for (const childVNode of newNode.children) {
+                const key = childVNode.props?.key ?? childVNode.key;
+                if (key !== undefined) nextKeys.add(key);
+            }
+
+            const keyedRemovedEarly: InstanceChild[] = [];
+            for (const [key, childObj] of Array.from(oldChildrenMap.entries())) {
+                if (nextKeys.has(key)) continue;
+                keyedRemovedEarly.push(childObj);
+                oldChildrenMap.delete(key);
+            }
+
+            scheduleChildrenCleanup(keyedRemovedEarly);
+        }
+
         // Reconcile new children
         for (let i = 0; i < newNode.children.length; i++) {
             const newChildVNode = newNode.children[i];
@@ -494,6 +592,7 @@ function reconcile(
                     const pooledSprite = groupObj.get() as Phaser.Physics.Arcade.Sprite;
                     if (!pooledSprite) return;
 
+                    ensureArcadeBodySyncPatched(pooledSprite);
                     pooledSprite.setActive(true).setVisible(true);
                     if (pooledSprite.body) {
                         (pooledSprite.body as Phaser.Physics.Arcade.Body).setEnable(true);
@@ -546,79 +645,11 @@ function reconcile(
         oldChildrenMap.forEach(child => removedChildren.push(child));
         oldChildrenUnkeyed.forEach(child => removedChildren.push(child));
 
+        scheduleChildrenCleanup(removedChildren);
+
         commitQueue.ops.push(() => {
             const host = resolveHost(parentContainerHandle as any) as any;
             const owner: any = isFragment ? parentContainerHandle : host;
-            const group = (!isFragment && host instanceof Phaser.Physics.Arcade.Group) ? (host as Phaser.Physics.Arcade.Group) : null;
-
-            const cleanupPooledSprite = (sprite: Phaser.Physics.Arcade.Sprite) => {
-                if (!group) return;
-                group.killAndHide(sprite);
-                if (sprite.body) {
-                    sprite.body.stop();
-                    (sprite.body as Phaser.Physics.Arcade.Body).setEnable(false);
-                }
-            };
-
-            const clearRefs = (obj: InstanceChild | null) => {
-                if (!obj) return;
-
-                // ComponentInstance unmount clears VNode refs.
-                if (obj instanceof ComponentInstance) return;
-
-                if (isFragmentInstance(obj)) {
-                    const children = Array.isArray(obj.__v_children) ? obj.__v_children : [];
-                    for (const child of children) clearRefs(child as any);
-                    return;
-                }
-
-                const resolved = resolveHost(obj as any) as any;
-                if (!resolved) return;
-
-                const ref = resolved.__v_props?.ref;
-                if (ref && typeof ref === "object" && "current" in ref) {
-                    if ((ref as any).current === resolved) {
-                        (ref as any).current = null;
-                    }
-                }
-            };
-
-            for (const childObj of removedChildren) {
-                clearRefs(childObj);
-
-                if (group) {
-                    if (isFragmentInstance(childObj)) {
-                        destroyInstanceChildTree(childObj);
-                        continue;
-                    }
-
-                    if (childObj instanceof ComponentInstance) {
-                        const phaserNode = (childObj.phaserObject instanceof ComponentInstance) ? null : childObj.phaserObject;
-                        const isPooled = !!(phaserNode as any)?.__v_pooled;
-                        childObj.unmount();
-                        if (isPooled && phaserNode instanceof Phaser.Physics.Arcade.Sprite) {
-                            cleanupPooledSprite(phaserNode);
-                        }
-                        continue;
-                    }
-
-                    const sprite = resolveHost(childObj as any) as Phaser.Physics.Arcade.Sprite | null;
-                    const isPooled = !!(sprite as any)?.__v_pooled;
-                    if (sprite) {
-                        if (isPooled) cleanupPooledSprite(sprite);
-                        else sprite.destroy();
-                    }
-                    continue;
-                }
-
-                // Non-group container cleanup
-                if (childObj instanceof ComponentInstance) childObj.unmount();
-                else if (isFragmentInstance(childObj)) destroyInstanceChildTree(childObj);
-                else {
-                    const childHost = resolveHost(childObj as any) as Phaser.GameObjects.GameObject | null;
-                    if (childHost) childHost.destroy();
-                }
-            }
 
             // Save the new children state
             if (owner) {

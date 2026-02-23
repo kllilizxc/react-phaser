@@ -248,6 +248,50 @@ describe("react-phaser reconciler", () => {
         root.unmount();
     });
 
+    it("does not kill pooled sprites reused in the same update", () => {
+        const scene = createMockScene();
+
+        const group = new Phaser.Physics.Arcade.Group({} as any, {} as any) as any;
+        const spriteA = scene.physics.add.sprite(0, 0, "t") as any;
+        const spriteB = scene.physics.add.sprite(0, 0, "t") as any;
+
+        group.get = vi.fn()
+            .mockReturnValueOnce(spriteA)
+            .mockReturnValueOnce(spriteB)
+            .mockReturnValueOnce(spriteB);
+
+        const aRef = { current: null as Phaser.Physics.Arcade.Sprite | null };
+        const bRef = { current: null as Phaser.Physics.Arcade.Sprite | null };
+        const cRef = { current: null as Phaser.Physics.Arcade.Sprite | null };
+
+        function App(props: { showB: boolean; showC: boolean }) {
+            return createNode(
+                group,
+                {},
+                createNode("physics-sprite", { key: "a", ref: aRef, texture: "t" }),
+                props.showB ? createNode("physics-sprite", { key: "b", ref: bRef, texture: "t" }) : null,
+                props.showC ? createNode("physics-sprite", { key: "c", ref: cRef, texture: "t" }) : null
+            );
+        }
+
+        const root = mountRoot(scene as any, App, { showB: true, showC: false });
+
+        expect(aRef.current).toBe(spriteA);
+        expect(bRef.current).toBe(spriteB);
+
+        // Simulate user code disabling a sprite before state removes it.
+        spriteB.setActive(false).setVisible(false);
+
+        root.update({ showB: false, showC: true });
+
+        expect(bRef.current).toBeNull();
+        expect(cRef.current).toBe(spriteB);
+        expect(spriteB.active).toBe(true);
+        expect(spriteB.visible).toBe(true);
+        expect(spriteB.body.setEnable).toHaveBeenLastCalledWith(true);
+        root.unmount();
+    });
+
     it("destroys non-pooled sprites removed from a physics-group (shelling existing children)", () => {
         const scene = createMockScene();
         const warn = vi.spyOn(console, "warn").mockImplementation(() => { });

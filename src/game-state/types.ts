@@ -39,6 +39,8 @@ export type GameStore<
 
 export interface StoreDescriptor<S extends State, G extends Getters<S>, A extends Actions> {
     state: () => S;
-    getters?: G;
+    // Intersect with `Getters<S>` to ensure contextual typing for getter functions,
+    // even when `G` is being inferred.
+    getters?: Getters<S> & G;
     actions?: A & ThisType<GameStore<S, G, A>>;
 }

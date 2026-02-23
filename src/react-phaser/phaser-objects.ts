@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import { devWarnOnce } from "./dev";
+import { ensureArcadeBodySyncPatched } from "./arcade-body-sync";
 
 const INTERNAL_PROP_KEYS = new Set([
     "x", "y", "z", "depth", "w", "h",
@@ -49,6 +50,7 @@ export function createPhaserObject(scene: Phaser.Scene, type: string, props: any
             break;
         case "physics-sprite":
             obj = scene.physics.add.sprite(props.x || 0, props.y || 0, props.texture, props.frame);
+            ensureArcadeBodySyncPatched(obj);
             break;
         case "physics-group":
             obj = scene.physics.add.group(props.config || {});
@@ -64,14 +66,23 @@ export function createPhaserObject(scene: Phaser.Scene, type: string, props: any
 export function updatePhaserObject(obj: any, type: string, newProps: any, oldProps: any, isMount: boolean = false) {
     const isDirect = type === "direct";
     const applyDefaultsOnMount = isMount && !isDirect;
+    const isArcadeSprite = obj instanceof Phaser.Physics.Arcade.Sprite;
+
+    if (isArcadeSprite) {
+        ensureArcadeBodySyncPatched(obj);
+    }
+
+    let shouldSyncArcadeBody = false;
 
     if (isMount || newProps.x !== oldProps.x) {
         if (newProps.x !== undefined) obj.x = newProps.x;
         else if (!isDirect && isMount) obj.x = 0;
+        if (isArcadeSprite) shouldSyncArcadeBody = true;
     }
     if (isMount || newProps.y !== oldProps.y) {
         if (newProps.y !== undefined) obj.y = newProps.y;
         else if (!isDirect && isMount) obj.y = 0;
+        if (isArcadeSprite) shouldSyncArcadeBody = true;
     }
     if (typeof obj.setAlpha === "function" && (isMount || newProps.alpha !== oldProps.alpha)) {
         if (newProps.alpha !== undefined) obj.setAlpha(newProps.alpha);
@@ -84,6 +95,7 @@ export function updatePhaserObject(obj: any, type: string, newProps: any, oldPro
     if (typeof obj.setScale === "function" && (isMount || newProps.scale !== oldProps.scale)) {
         if (newProps.scale !== undefined) obj.setScale(newProps.scale);
         else if (!isDirect) obj.setScale(1);
+        if (isArcadeSprite) shouldSyncArcadeBody = true;
     }
 
     // Origin handling
@@ -93,6 +105,7 @@ export function updatePhaserObject(obj: any, type: string, newProps: any, oldPro
         } else if (!isDirect) {
             obj.setOrigin(0.5, 0.5); // Default for most things
         }
+        if (isArcadeSprite) shouldSyncArcadeBody = true;
     }
 
     if (typeof obj.setRotation === "function" && (isMount || newProps.rotation !== oldProps.rotation)) {
@@ -378,8 +391,8 @@ export function updatePhaserObject(obj: any, type: string, newProps: any, oldPro
     }
 
     switch (effectiveType) {
-	        case "text":
-	            if (newProps.text !== oldProps.text) obj.setText(newProps.text || "");
+        case "text":
+            if (newProps.text !== oldProps.text) obj.setText(newProps.text || "");
             if (applyDefaultsOnMount || newProps.fontSize !== oldProps.fontSize) {
                 const fontSize = newProps.fontSize !== undefined
                     ? (typeof newProps.fontSize === "number" ? `${newProps.fontSize}px` : newProps.fontSize)
@@ -402,19 +415,19 @@ export function updatePhaserObject(obj: any, type: string, newProps: any, oldPro
                 if (typeof obj.setAlign === "function") obj.setAlign(align);
                 else if (typeof obj.setStyle === "function") obj.setStyle({ align });
             }
-		            const wrapRelevant =
-		                newProps.wordWrapWidth !== undefined ||
-		                oldProps.wordWrapWidth !== undefined ||
-		                newProps.wordWrapAdvanced !== undefined ||
-		                oldProps.wordWrapAdvanced !== undefined;
-		            const wrapChanged = newProps.wordWrapWidth !== oldProps.wordWrapWidth || newProps.wordWrapAdvanced !== oldProps.wordWrapAdvanced;
-		            if (wrapRelevant && (isMount || wrapChanged)) {
-		                const width = newProps.wordWrapWidth ?? 0;
-		                const useAdvanced = newProps.wordWrapAdvanced ?? false;
-		                if (typeof obj.setWordWrapWidth === "function") obj.setWordWrapWidth(width, useAdvanced);
-		                else if (obj.style && typeof obj.style.setWordWrapWidth === "function") obj.style.setWordWrapWidth(width, useAdvanced);
-		            }
-		            break;
+            const wrapRelevant =
+                newProps.wordWrapWidth !== undefined ||
+                oldProps.wordWrapWidth !== undefined ||
+                newProps.wordWrapAdvanced !== undefined ||
+                oldProps.wordWrapAdvanced !== undefined;
+            const wrapChanged = newProps.wordWrapWidth !== oldProps.wordWrapWidth || newProps.wordWrapAdvanced !== oldProps.wordWrapAdvanced;
+            if (wrapRelevant && (isMount || wrapChanged)) {
+                const width = newProps.wordWrapWidth ?? 0;
+                const useAdvanced = newProps.wordWrapAdvanced ?? false;
+                if (typeof obj.setWordWrapWidth === "function") obj.setWordWrapWidth(width, useAdvanced);
+                else if (obj.style && typeof obj.style.setWordWrapWidth === "function") obj.style.setWordWrapWidth(width, useAdvanced);
+            }
+            break;
         case "rect":
             // Only redraw graphics if properties changed
             if (nextWidth !== prevWidth || nextHeight !== prevHeight ||
@@ -474,11 +487,14 @@ export function updatePhaserObject(obj: any, type: string, newProps: any, oldPro
             if (applyDefaultsOnMount || newProps.gravityY !== oldProps.gravityY) obj.setGravityY(newProps.gravityY ?? 0);
             if (applyDefaultsOnMount || newProps.immovable !== oldProps.immovable) obj.setImmovable(newProps.immovable ?? false);
 
-            if (applyDefaultsOnMount || newProps.scale !== oldProps.scale || newProps.bodyWidthRatio !== oldProps.bodyWidthRatio || newProps.bodyHeightRatio !== oldProps.bodyHeightRatio) {
+            if (applyDefaultsOnMount || newProps.texture !== oldProps.texture || newProps.frame !== oldProps.frame || newProps.bodyWidthRatio !== oldProps.bodyWidthRatio || newProps.bodyHeightRatio !== oldProps.bodyHeightRatio) {
                 if (newProps.bodyWidthRatio !== undefined && newProps.bodyHeightRatio !== undefined) {
-                    const scale = newProps.scale ?? obj.scaleX ?? 1;
-                    const targetW = obj.width * scale * newProps.bodyWidthRatio;
-                    const targetH = obj.height * scale * newProps.bodyHeightRatio;
+                    // Arcade body sizes are specified in *source* pixels. The physics body will
+                    // automatically scale with the Sprite, so do not multiply by `scale` here.
+                    const baseW = typeof obj.width === "number" ? obj.width : 0;
+                    const baseH = typeof obj.height === "number" ? obj.height : 0;
+                    const targetW = Math.max(1, baseW * newProps.bodyWidthRatio);
+                    const targetH = Math.max(1, baseH * newProps.bodyHeightRatio);
 
                     if (typeof obj.setBodySize === "function") {
                         obj.setBodySize(targetW, targetH, true);
@@ -498,6 +514,7 @@ export function updatePhaserObject(obj: any, type: string, newProps: any, oldPro
                             obj.body.setOffset(offX, offY);
                         }
                     }
+                    shouldSyncArcadeBody = true;
                 }
             }
             if (applyDefaultsOnMount || newProps.bodyWidth !== oldProps.bodyWidth || newProps.bodyHeight !== oldProps.bodyHeight) {
@@ -507,14 +524,20 @@ export function updatePhaserObject(obj: any, type: string, newProps: any, oldPro
                     } else {
                         obj.body.setSize(newProps.bodyWidth, newProps.bodyHeight, true);
                     }
+                    shouldSyncArcadeBody = true;
                 }
             }
             if (applyDefaultsOnMount || newProps.bodyOffsetX !== oldProps.bodyOffsetX || newProps.bodyOffsetY !== oldProps.bodyOffsetY) {
                 if (newProps.bodyOffsetX !== undefined || newProps.bodyOffsetY !== undefined) {
                     obj.body.setOffset(newProps.bodyOffsetX ?? 0, newProps.bodyOffsetY ?? 0);
+                    shouldSyncArcadeBody = true;
                 }
             }
             break;
+    }
+
+    if (shouldSyncArcadeBody && obj.body && typeof obj.body.updateFromGameObject === "function") {
+        obj.body.updateFromGameObject();
     }
 
     // --- Data Manager & Property Sync ---
