@@ -135,6 +135,7 @@ export interface PhysicsSpriteProps extends SpriteProps {
     bodyHeightRatio?: number;
     bodyOffsetX?: number;
     bodyOffsetY?: number;
+    bodyOffsetMode?: "center" | "origin";
 }
 
 export interface PhysicsGroupProps extends BaseProps {

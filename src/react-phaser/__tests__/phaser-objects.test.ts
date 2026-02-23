@@ -273,7 +273,7 @@ describe("react-phaser phaser-objects", () => {
         expect(disableInteractive).toHaveBeenCalled();
     });
 
-    it("updates physics body size ratios and offsets", () => {
+    it("updates physics body size ratios and explicit offsets", () => {
         const obj = new Phaser.Physics.Arcade.Sprite({} as any, 0, 0, undefined as any);
         obj.width = 10;
         obj.height = 20;
@@ -289,13 +289,33 @@ describe("react-phaser phaser-objects", () => {
         }, {}, true);
 
         expect(obj.body.setSize).toHaveBeenCalledWith(10, 10, true);
-        expect(obj.body.setOffset).toHaveBeenCalledWith(10, -15);
+        expect(obj.body.setOffset).not.toHaveBeenCalled();
 
         updatePhaserObject(obj as any, "physics-sprite", { bodyWidth: 5, bodyHeight: 6 }, {}, true);
         expect(obj.body.setSize).toHaveBeenCalledWith(5, 6, true);
 
         updatePhaserObject(obj as any, "physics-sprite", { bodyOffsetX: 1, bodyOffsetY: 2 }, {}, true);
         expect(obj.body.setOffset).toHaveBeenCalledWith(1, 2);
+    });
+
+    it("supports opt-in origin-based body offsets for ratio sizing", () => {
+        const obj = new Phaser.Physics.Arcade.Sprite({} as any, 0, 0, undefined as any);
+        obj.width = 10;
+        obj.height = 20;
+        obj.displayWidth = 40;
+        obj.displayHeight = 60;
+
+        updatePhaserObject(obj as any, "physics-sprite", {
+            scale: 2,
+            bodyWidthRatio: 0.5,
+            bodyHeightRatio: 0.25,
+            originX: 0.25,
+            originY: 0.75,
+            bodyOffsetMode: "origin",
+        }, {}, true);
+
+        expect(obj.body.setSize).toHaveBeenCalledWith(10, 10, true);
+        expect(obj.body.setOffset).toHaveBeenCalledWith(10, -15);
     });
 
     it("defaults missing bodyOffsetX/bodyOffsetY to 0 when only one is provided", () => {
@@ -363,7 +383,7 @@ describe("react-phaser phaser-objects", () => {
         }, {}, false);
 
         expect(body.setSize).toHaveBeenCalledWith(10, 10, true);
-        expect(body.setOffset).toHaveBeenCalledWith(10, -15);
+        expect(body.setOffset).not.toHaveBeenCalled();
 
         body.setSize.mockClear();
         updatePhaserObject(obj, "physics-sprite", { bodyWidth: 5, bodyHeight: 6 }, {}, false);
@@ -382,6 +402,14 @@ describe("react-phaser phaser-objects", () => {
 
         updatePhaserObject(obj as any, "physics-sprite", { bodyWidthRatio: 0.5, bodyHeightRatio: 0.25 }, {}, false);
         expect(obj.body.setSize).toHaveBeenCalledWith(10, 10, true);
+        expect(obj.body.setOffset).not.toHaveBeenCalled();
+
+        obj.body.setOffset.mockClear();
+        updatePhaserObject(obj as any, "physics-sprite", {
+            bodyWidthRatio: 0.5,
+            bodyHeightRatio: 0.25,
+            bodyOffsetMode: "origin",
+        }, {}, false);
         expect(obj.body.setOffset).toHaveBeenCalledWith(10, -15);
 
         const obj2 = new Phaser.Physics.Arcade.Sprite({} as any, 0, 0, undefined as any);
