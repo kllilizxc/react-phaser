@@ -15,7 +15,7 @@ const INTERNAL_PROP_KEYS = new Set([
     "onDragEnter", "onDragLeave", "onDragOver", "onDrop",
     "texture", "frame", "tint", "flipX", "flipY", "play",
     "velocityX", "velocityY", "collideWorldBounds", "bounce", "drag", "gravityY", "immovable",
-    "bodyWidth", "bodyHeight", "bodyWidthRatio", "bodyHeightRatio", "bodyOffsetX", "bodyOffsetY",
+    "bodyWidth", "bodyHeight", "bodyWidthRatio", "bodyHeightRatio", "bodyOffsetX", "bodyOffsetY", "bodyOffsetMode",
     "text", "fontSize", "color", "fontStyle", "align", "wordWrapWidth", "wordWrapAdvanced",
     "fill", "strokeWidth", "lineColor",
     "config",
@@ -486,14 +486,17 @@ export function updatePhaserObject(obj: any, type: string, newProps: any, oldPro
                         obj.body.setSize(targetW, targetH, true);
                     }
 
-                    // For rotated or offset sprites, we might need manual offset.
-                    // If origin is not 0.5, setSize(..., true) might center it wrong relative to the visual.
-                    const originX = newProps.originX ?? obj.originX ?? 0.5;
-                    const originY = newProps.originY ?? obj.originY ?? 0.5;
-                    if (originX !== 0.5 || originY !== 0.5) {
-                        const offX = (0.5 - originX) * obj.displayWidth;
-                        const offY = (0.5 - originY) * obj.displayHeight;
-                        obj.body.setOffset(offX, offY);
+                    // Keep ratio-based bodies centered by default. Origin-based body shifting
+                    // is opt-in to avoid surprising collider drift for non-default origins.
+                    const bodyOffsetMode = newProps.bodyOffsetMode ?? "center";
+                    if (bodyOffsetMode === "origin") {
+                        const originX = newProps.originX ?? obj.originX ?? 0.5;
+                        const originY = newProps.originY ?? obj.originY ?? 0.5;
+                        if (originX !== 0.5 || originY !== 0.5) {
+                            const offX = (0.5 - originX) * obj.displayWidth;
+                            const offY = (0.5 - originY) * obj.displayHeight;
+                            obj.body.setOffset(offX, offY);
+                        }
                     }
                 }
             }
