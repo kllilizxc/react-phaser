@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { defineGameStore } from "../define-game-store";
 import type { Mutation } from "../types";
 
@@ -34,6 +34,28 @@ describe("game-state defineGameStore", () => {
         expect(mutations).toHaveLength(1);
         expect(mutations[0].action).toBe("incLater");
         expect(mutations[0].changes).toEqual([{ key: "n", old: 0, new: 2 }]);
+    });
+
+    it("tracks deep mutations inside actions", () => {
+        const useStore = defineGameStore("test_deep_mutations", {
+            state: () => ({ player: { hp: 10 } }),
+            actions: {
+                hit() {
+                    this.player.hp -= 1;
+                },
+            },
+        });
+
+        const store = useStore() as any;
+        const mutations: Mutation[] = [];
+        store.$subscribe((m: Mutation) => mutations.push(m));
+
+        store.hit();
+
+        expect(store.player.hp).toBe(9);
+        expect(mutations).toHaveLength(1);
+        expect(mutations[0].action).toBe("hit");
+        expect(mutations[0].changes).toEqual([{ key: "player.hp", old: 10, new: 9 }]);
     });
 
     it("batches nested action calls into the outermost action", () => {
@@ -136,13 +158,16 @@ describe("game-state defineGameStore", () => {
 
         const store = useStore() as any;
         store.setA(10);
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => { });
         (store.$state as any).extra = 123;
+        expect(warn).toHaveBeenCalled();
         expect(Object.keys(store.$state)).toEqual(["a", "b", "extra"]);
 
         store.$reset();
         expect(store.a).toBe(1);
         expect(store.b).toBe(2);
         expect(Object.keys(store.$state)).toEqual(["a", "b"]);
+        warn.mockRestore();
     });
 
     it("unsubscribe can be called multiple times", () => {
@@ -222,5 +247,83 @@ describe("game-state defineGameStore", () => {
         expect(mutations).toHaveLength(1);
         expect(mutations[0].action).toBe("incThenable");
         expect(mutations[0].changes).toEqual([{ key: "n", old: 0, new: 1 }]);
+    });
+
+    it("$watch calls back when a selected primitive changes", () => {
+        const useStore = defineGameStore("test_watch_primitives", {
+            state: () => ({ n: 0, other: 0 }),
+            actions: {
+                inc() {
+                    this.n++;
+                },
+                incOther() {
+                    this.other++;
+                },
+            },
+        });
+
+        const store = useStore() as any;
+        const cb = vi.fn();
+        const unsub = store.$watch((s: any) => s.n, cb);
+
+        store.inc();
+        expect(cb).toHaveBeenCalledTimes(1);
+        expect(cb).toHaveBeenCalledWith(1, 0, expect.objectContaining({ action: "inc" }));
+
+        store.incOther();
+        expect(cb).toHaveBeenCalledTimes(1);
+
+        unsub();
+        store.inc();
+        expect(cb).toHaveBeenCalledTimes(1);
+    });
+
+    it("$watch triggers for deep selector values by default", () => {
+        const useStore = defineGameStore("test_watch_deep_default", {
+            state: () => ({ player: { hp: 10 }, other: 0 }),
+            actions: {
+                hit() {
+                    this.player.hp -= 1;
+                },
+                incOther() {
+                    this.other += 1;
+                },
+            },
+        });
+
+        const store = useStore() as any;
+        const cb = vi.fn();
+        store.$watch((s: any) => s.player, cb);
+
+        store.hit();
+        expect(cb).toHaveBeenCalledTimes(1);
+        expect(cb).toHaveBeenCalledWith(expect.any(Object), expect.any(Object), expect.objectContaining({ action: "hit" }));
+
+        store.incOther();
+        expect(cb).toHaveBeenCalledTimes(1);
+    });
+
+    it("$watch deep=false only triggers on reference changes", () => {
+        const useStore = defineGameStore("test_watch_deep_false", {
+            state: () => ({ player: { hp: 10 } }),
+            actions: {
+                hit() {
+                    this.player.hp -= 1;
+                },
+                replace() {
+                    this.player = { hp: this.player.hp };
+                },
+            },
+        });
+
+        const store = useStore() as any;
+        const cb = vi.fn();
+        store.$watch((s: any) => s.player, cb, { deep: false });
+
+        store.hit();
+        expect(cb).toHaveBeenCalledTimes(0);
+
+        store.replace();
+        expect(cb).toHaveBeenCalledTimes(1);
     });
 });

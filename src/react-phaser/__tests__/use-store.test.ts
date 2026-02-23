@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
+import type Phaser from "phaser";
 import { createMockScene } from "./test-utils";
 import { mountRoot } from "../core";
 import { onMount, useLayoutEffect, useRef, useScene, useStore } from "../hooks";
+import { defineGameStore } from "../../game-state/define-game-store";
 
 function createSubscribableStore() {
     const subs = new Set<() => void>();
@@ -55,6 +57,7 @@ describe("react-phaser useStore/useScene/useRef/onMount", () => {
         const scene = createMockScene();
         const store: any = { n: 0 };
         let renders = 0;
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => { });
 
         function App() {
             useStore(() => store, s => s.n);
@@ -68,6 +71,7 @@ describe("react-phaser useStore/useScene/useRef/onMount", () => {
         store.n = 1;
         await Promise.resolve();
         expect(renders).toBe(1);
+        warn.mockRestore();
     });
 
     it("useStore without selector re-renders on any subscribe notification", async () => {
@@ -112,6 +116,43 @@ describe("react-phaser useStore/useScene/useRef/onMount", () => {
         expect(renders).toBe(2);
     });
 
+    it("useStore supports deep-mutation reactivity for game-state selectors", async () => {
+        const scene = createMockScene();
+        const useGs = defineGameStore("test_useStore_deep_mutations", {
+            state: () => ({
+                player: { hp: 10 },
+                score: 0,
+            }),
+            actions: {
+                hit() {
+                    this.player.hp -= 1;
+                },
+                addScore() {
+                    this.score += 1;
+                },
+            },
+        });
+        const gs = useGs() as any;
+
+        let renders = 0;
+        function App() {
+            useStore(useGs as any, s => s.player);
+            renders++;
+            return null;
+        }
+
+        mountRoot(scene as any, App, {});
+        expect(renders).toBe(1);
+
+        gs.hit();
+        await Promise.resolve();
+        expect(renders).toBe(2);
+
+        gs.addScore();
+        await Promise.resolve();
+        expect(renders).toBe(2);
+    });
+
     it("useStore unsubscribes on unmount", () => {
         const scene = createMockScene();
         const store = createSubscribableStore();
@@ -134,6 +175,40 @@ describe("react-phaser useStore/useScene/useRef/onMount", () => {
         const root = mountRoot(scene as any, App, {});
         root.unmount();
         expect(unsubCalls).toBe(1);
+    });
+
+    it("useStore resubscribes when the store instance changes", async () => {
+        const scene = createMockScene();
+        const storeA = createSubscribableStore();
+        const storeB = createSubscribableStore();
+        storeB.n = 10;
+
+        let renders = 0;
+        function App(props: { store: any }) {
+            useStore(() => props.store, s => s.n);
+            renders++;
+            return null;
+        }
+
+        const root = mountRoot(scene as any, App, { store: storeA });
+        expect(renders).toBe(1);
+
+        storeA.inc();
+        await Promise.resolve();
+        expect(renders).toBe(2);
+
+        root.update({ store: storeB });
+        expect(renders).toBe(3);
+
+        storeA.inc();
+        await Promise.resolve();
+        expect(renders).toBe(3);
+
+        storeB.inc();
+        await Promise.resolve();
+        expect(renders).toBe(4);
+
+        root.unmount();
     });
 
     it("useStore subscription callback is a no-op after unmount", async () => {
@@ -183,6 +258,20 @@ describe("react-phaser useStore/useScene/useRef/onMount", () => {
         root.update({});
         expect(lastRef).toBe(firstRef);
         root.unmount();
+    });
+
+    it("useRef accepts null initial values for non-null generic types", () => {
+        const scene = createMockScene();
+        let current: any = "unset";
+
+        function App() {
+            const r = useRef<Phaser.GameObjects.Sprite>(null);
+            current = r.current;
+            return null;
+        }
+
+        mountRoot(scene as any, App, {});
+        expect(current).toBeNull();
     });
 
     it("onMount runs once and cleans up on unmount", () => {

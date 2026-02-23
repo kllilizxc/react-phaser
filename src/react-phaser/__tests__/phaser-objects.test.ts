@@ -65,6 +65,202 @@ describe("react-phaser phaser-objects", () => {
         expect(calls).toEqual(["fn1", "fn2"]);
     });
 
+    it("supports wheel and drag target event props with stable wrappers", () => {
+        const obj = new Phaser.GameObjects.Sprite({} as any, 0, 0, undefined as any);
+        const on = vi.spyOn(obj as any, "on");
+
+        const calls: string[] = [];
+        const wheel1 = () => calls.push("wheel1");
+        const dragEnter1 = () => calls.push("dragEnter1");
+        const drop1 = () => calls.push("drop1");
+
+        updatePhaserObject(obj as any, "sprite", {
+            interactive: true,
+            onWheel: wheel1,
+            onDragEnter: dragEnter1,
+            onDrop: drop1,
+        }, {}, true);
+
+        expect(on).toHaveBeenCalledTimes(3);
+
+        (obj as any).emit("wheel");
+        (obj as any).emit("dragenter");
+        (obj as any).emit("drop");
+        expect(calls).toEqual(["wheel1", "dragEnter1", "drop1"]);
+
+        const wheel2 = () => calls.push("wheel2");
+        const dragEnter2 = () => calls.push("dragEnter2");
+        const drop2 = () => calls.push("drop2");
+
+        updatePhaserObject(obj as any, "sprite", {
+            interactive: true,
+            onWheel: wheel2,
+            onDragEnter: dragEnter2,
+            onDrop: drop2,
+        }, {
+            interactive: true,
+            onWheel: wheel1,
+            onDragEnter: dragEnter1,
+            onDrop: drop1,
+        }, false);
+
+        expect(on).toHaveBeenCalledTimes(3);
+
+        (obj as any).emit("wheel");
+        (obj as any).emit("dragenter");
+        (obj as any).emit("drop");
+        expect(calls).toEqual(["wheel1", "dragEnter1", "drop1", "wheel2", "dragEnter2", "drop2"]);
+
+        updatePhaserObject(obj as any, "sprite", { interactive: true }, {
+            interactive: true,
+            onWheel: wheel2,
+            onDragEnter: dragEnter2,
+            onDrop: drop2,
+        }, false);
+
+        (obj as any).emit("wheel");
+        (obj as any).emit("dragenter");
+        (obj as any).emit("drop");
+        expect(calls).toEqual(["wheel1", "dragEnter1", "drop1", "wheel2", "dragEnter2", "drop2"]);
+    });
+
+    it("supports pointer and drag event props with stable wrappers", () => {
+        const obj = new Phaser.GameObjects.Sprite({} as any, 0, 0, undefined as any);
+        const on = vi.spyOn(obj as any, "on");
+
+        const calls: string[] = [];
+        const down1 = () => calls.push("down1");
+        const click1 = () => calls.push("click1");
+        const up1 = () => calls.push("up1");
+        const drag1 = () => calls.push("drag1");
+
+        updatePhaserObject(obj as any, "sprite", {
+            interactive: true,
+            onPointerDown: down1,
+            onClick: click1,
+            onPointerUp: up1,
+            onDrag: drag1,
+        }, {}, true);
+
+        expect(on).toHaveBeenCalledTimes(3);
+        (obj as any).emit("pointerdown");
+        (obj as any).emit("pointerup");
+        (obj as any).emit("drag");
+        expect(calls).toEqual(["down1", "click1", "up1", "drag1"]);
+
+        const down2 = () => calls.push("down2");
+        const click2 = () => calls.push("click2");
+        const up2 = () => calls.push("up2");
+        const drag2 = () => calls.push("drag2");
+
+        updatePhaserObject(obj as any, "sprite", {
+            interactive: true,
+            onPointerDown: down2,
+            onClick: click2,
+            onPointerUp: up2,
+            onDrag: drag2,
+        }, {
+            interactive: true,
+            onPointerDown: down1,
+            onClick: click1,
+            onPointerUp: up1,
+            onDrag: drag1,
+        }, false);
+
+        expect(on).toHaveBeenCalledTimes(3);
+        (obj as any).emit("pointerdown");
+        (obj as any).emit("pointerup");
+        (obj as any).emit("drag");
+        expect(calls).toEqual(["down1", "click1", "up1", "drag1", "down2", "click2", "up2", "drag2"]);
+
+        updatePhaserObject(obj as any, "sprite", { interactive: true }, {
+            interactive: true,
+            onPointerDown: down2,
+            onClick: click2,
+            onPointerUp: up2,
+            onDrag: drag2,
+        }, false);
+
+        (obj as any).emit("pointerdown");
+        (obj as any).emit("pointerup");
+        (obj as any).emit("drag");
+        expect(calls).toEqual(["down1", "click1", "up1", "drag1", "down2", "click2", "up2", "drag2"]);
+    });
+
+    it("auto-enables interactivity when handlers are present (non-container)", () => {
+        const obj = new Phaser.GameObjects.Sprite({} as any, 0, 0, undefined as any);
+        const setInteractive = vi.spyOn(obj as any, "setInteractive");
+
+        updatePhaserObject(obj as any, "sprite", { onPointerOver: () => { } }, {}, true);
+        expect(setInteractive).toHaveBeenCalledWith(expect.objectContaining({ useHandCursor: false }));
+    });
+
+    it("does not auto-enable interactivity for containers without a hit area", () => {
+        const obj = new Phaser.GameObjects.Container({} as any, 0, 0, []);
+        const setInteractive = vi.spyOn(obj as any, "setInteractive");
+
+        updatePhaserObject(obj as any, "container", { onClick: () => { } }, {}, true);
+        expect(setInteractive).not.toHaveBeenCalled();
+    });
+
+    it("auto-creates a rectangle hit area for containers when width/height are provided", () => {
+        const obj = new Phaser.GameObjects.Container({} as any, 0, 0, []);
+        const setInteractive = vi.spyOn(obj as any, "setInteractive");
+
+        updatePhaserObject(obj as any, "container", { width: 10, height: 20, onClick: () => { } }, {}, true);
+        expect(setInteractive).toHaveBeenCalledWith(expect.objectContaining({
+            hitArea: expect.any(Phaser.Geom.Rectangle),
+            hitAreaCallback: Phaser.Geom.Rectangle.Contains,
+        }));
+    });
+
+    it("supports w/h aliases for hit area sizing (containers)", () => {
+        const obj = new Phaser.GameObjects.Container({} as any, 0, 0, []);
+        const setInteractive = vi.spyOn(obj as any, "setInteractive");
+
+        updatePhaserObject(obj as any, "container", { w: 10, h: 20, onClick: () => { } }, {}, true);
+        expect(setInteractive).toHaveBeenCalledWith(expect.objectContaining({
+            hitArea: expect.any(Phaser.Geom.Rectangle),
+            hitAreaCallback: Phaser.Geom.Rectangle.Contains,
+        }));
+    });
+
+    it("passes through custom hitArea/hitAreaCallback props", () => {
+        const obj = new Phaser.GameObjects.Sprite({} as any, 0, 0, undefined as any);
+        const setInteractive = vi.spyOn(obj as any, "setInteractive");
+        const hitArea = { ok: true };
+        const hitAreaCallback = () => true;
+
+        updatePhaserObject(obj as any, "sprite", { onClick: () => { }, hitArea, hitAreaCallback }, {}, true);
+        expect(setInteractive).toHaveBeenCalledWith(expect.objectContaining({ hitArea, hitAreaCallback }));
+    });
+
+    it("syncs draggable with scene.input.setDraggable when available", () => {
+        const obj = new Phaser.GameObjects.Sprite({} as any, 0, 0, undefined as any);
+        const setDraggable = vi.fn();
+        (obj as any).scene = { input: { setDraggable } };
+
+        const onClick = () => { };
+        updatePhaserObject(obj as any, "sprite", { onClick, draggable: true }, {}, true);
+        expect(setDraggable).toHaveBeenCalledWith(obj, true);
+
+        updatePhaserObject(obj as any, "sprite", { onClick, draggable: false }, { onClick, draggable: true }, false);
+        expect(setDraggable).toHaveBeenLastCalledWith(obj, false);
+    });
+
+    it("infers draggable=true when drag handlers are present", () => {
+        const obj = new Phaser.GameObjects.Sprite({} as any, 0, 0, undefined as any);
+        const setDraggable = vi.fn();
+        (obj as any).scene = { input: { setDraggable } };
+
+        const onDrag = () => { };
+        updatePhaserObject(obj as any, "sprite", { onDrag }, {}, true);
+        expect(setDraggable).toHaveBeenCalledWith(obj, true);
+
+        updatePhaserObject(obj as any, "sprite", {}, { onDrag }, false);
+        expect(setDraggable).toHaveBeenLastCalledWith(obj, false);
+    });
+
     it("toggles interactivity and supports graphics hit areas", () => {
         const obj = new Phaser.GameObjects.Graphics({} as any);
         const setInteractive = vi.spyOn(obj as any, "setInteractive");
@@ -135,6 +331,14 @@ describe("react-phaser phaser-objects", () => {
         expect(fillRect).toHaveBeenCalledWith(0, 0, 10, 20);
     });
 
+    it("supports w/h aliases when drawing rect fills", () => {
+        const obj = new Phaser.GameObjects.Graphics({} as any);
+        const fillRect = vi.spyOn(obj as any, "fillRect");
+
+        updatePhaserObject(obj as any, "rect", { w: 10, h: 20, fill: 0x00ff00 }, {}, true);
+        expect(fillRect).toHaveBeenCalledWith(0, 0, 10, 20);
+    });
+
     it("falls back to body.setSize when setBodySize is not available", () => {
         const body = {
             setSize: vi.fn(),
@@ -200,6 +404,24 @@ describe("react-phaser phaser-objects", () => {
 
         updatePhaserObject(obj, "text", { wordWrapWidth: 123, wordWrapAdvanced: true }, {}, false);
         expect(setWordWrapWidth).toHaveBeenCalledWith(123, true);
+    });
+
+    it("resets wordWrapWidth on mount when not provided", () => {
+        const obj = new Phaser.GameObjects.Text({} as any, 0, 0, "", {});
+        const setWordWrapWidth = vi.spyOn(obj as any, "setWordWrapWidth");
+
+        updatePhaserObject(obj as any, "text", {}, {}, true);
+        expect(setWordWrapWidth).not.toHaveBeenCalled();
+    });
+
+    it("clears wordWrapWidth when it is removed", () => {
+        const obj = new Phaser.GameObjects.Text({} as any, 0, 0, "", {});
+        const setWordWrapWidth = vi.spyOn(obj as any, "setWordWrapWidth");
+
+        updatePhaserObject(obj as any, "text", { wordWrapWidth: 100, wordWrapAdvanced: true }, {}, true);
+        updatePhaserObject(obj as any, "text", {}, { wordWrapWidth: 100, wordWrapAdvanced: true }, false);
+
+        expect(setWordWrapWidth).toHaveBeenLastCalledWith(0, false);
     });
 
     it("falls back to setStyle for text properties when specific setters are missing", () => {

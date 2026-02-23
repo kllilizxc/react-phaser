@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import { createNode } from "../create-node";
 
 describe("createNode", () => {
+    it("normalizes alias node types", () => {
+        expect(createNode("graphics").type).toBe("rect");
+    });
+
     it("filters falsy children", () => {
         const child = createNode("text", { text: "hi" });
         const vnode = createNode("container", {}, child, null, false, undefined);

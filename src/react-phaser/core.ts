@@ -205,6 +205,11 @@ function reconcile(
         commitQueue.ops.push(() => destroyInstanceChildTree(obj));
     };
 
+		const normalizeVNodeType = (type: any) => {
+		    if (typeof type === "string" && type === "graphics") return "rect";
+		    return type;
+		};
+
     // 1. Remove old
     if (!newNode) {
         if (oldNode?.props?.ref && typeof oldNode.props.ref === "object" && "current" in oldNode.props.ref) {
@@ -258,7 +263,14 @@ function reconcile(
         }
     } else {
         // Determine if we need a totally new object
-        let isNew = !oldNode || oldNode?.type !== newNode.type || existingObj instanceof ComponentInstance || isFragmentInstance(existingObj);
+        const oldType = oldNode ? normalizeVNodeType(oldNode.type) : null;
+        const newType = normalizeVNodeType(newNode.type);
+
+        let isNew =
+            !oldNode ||
+            oldType !== newType ||
+            existingObj instanceof ComponentInstance ||
+            isFragmentInstance(existingObj);
 
         // Special Case: "Shelling" or Pooling.
         // If we have an existing native object and the new type matches it (e.g. Sprite matches 'sprite')
@@ -266,7 +278,9 @@ function reconcile(
         if (!oldNode && existingObj && !(existingObj instanceof ComponentInstance) && !isFragmentInstance(existingObj)) {
             let typeMatches = false;
             if (isHostSlot(existingObj)) {
-                typeMatches = typeof newNode.type === "string" && existingObj.expectedType === (newNode.type as string);
+                typeMatches =
+                    typeof newNode.type === "string" &&
+                    normalizeVNodeType(existingObj.expectedType) === normalizeVNodeType(newNode.type as string);
             } else {
                 const existingHost = existingObj as PhaserHost;
                 if (newNode.type === "sprite" && existingHost instanceof Phaser.GameObjects.Sprite) typeMatches = true;
@@ -285,7 +299,9 @@ function reconcile(
 
         // Harden pooled group slots: if we were handed a pooled slot, the new node MUST match.
         if (!oldNode && isHostSlot(existingObj) && existingObj.kind === "pooled") {
-            const typeMatches = typeof newNode.type === "string" && existingObj.expectedType === (newNode.type as string);
+            const typeMatches =
+                typeof newNode.type === "string" &&
+                normalizeVNodeType(existingObj.expectedType) === normalizeVNodeType(newNode.type as string);
             if (!typeMatches) {
                 if (DEV) {
                     devWarnOnce(
@@ -324,13 +340,13 @@ function reconcile(
                 commitQueue.ops.push(() => {
                     updatePhaserObject(phaserHandle as any, "direct", newNode.props, {}, true);
                 });
-            } else {
-                const slot = createHostSlot<PhaserHost>("create", newNode.type as string);
-                phaserHandle = slot;
-                commitQueue.ops.push(() => {
-                    slot.current = createPhaserObject(scene, newNode.type as string, newNode.props) as any;
-                });
-            }
+	            } else {
+	                const slot = createHostSlot<PhaserHost>("create", normalizeVNodeType(newNode.type as string));
+	                phaserHandle = slot;
+	                commitQueue.ops.push(() => {
+	                    slot.current = createPhaserObject(scene, newNode.type as string, newNode.props) as any;
+	                });
+	            }
 
             // Attach to parent / scene
             commitQueue.ops.push(() => {
@@ -660,8 +676,30 @@ function reconcile(
 
 // --- 6. Mount Entry Point ---
 
-export function mountRoot(scene: Phaser.Scene, rootComponent: Function, props: any = {}) {
-    const root = new ComponentInstance(scene, rootComponent, props);
+export type MountedRoot<TUpdate = any> = {
+    update: (next: TUpdate) => void;
+    unmount: () => void;
+};
+
+export function mountRoot(scene: Phaser.Scene, rootComponent: Function, props?: any): MountedRoot<any>;
+export function mountRoot(scene: Phaser.Scene, rootVNode: VNode | null): MountedRoot<VNode | null>;
+export function mountRoot(scene: Phaser.Scene, root: Function | VNode | null, props: any = {}): MountedRoot<any> {
+    function isVNodeLike(value: any): value is VNode {
+        return !!value && typeof value === "object" && "type" in value && "props" in value && "children" in value;
+    }
+
+    const isComponentRoot = typeof root === "function";
+    const isVNodeRoot = !isComponentRoot;
+
+    if (!isComponentRoot && root !== null && !isVNodeLike(root)) {
+        throw new Error("mountRoot(scene, root, props): 'root' must be a component function or a VNode.");
+    }
+
+    const RootVNodeWrapper = (p: { vnode: VNode | null }) => p.vnode;
+    const component: Function = isVNodeRoot ? RootVNodeWrapper : (root as Function);
+    const initialProps = isVNodeRoot ? { vnode: root } : props;
+
+    const rootInstance = new ComponentInstance(scene, component, initialProps);
     let disposed = false;
 
     const dispose = () => {
@@ -669,17 +707,17 @@ export function mountRoot(scene: Phaser.Scene, rootComponent: Function, props: a
         disposed = true;
         scene.events.off("shutdown", dispose);
         scene.events.off("destroy", dispose);
-        root.unmount();
+        rootInstance.unmount();
     };
 
     scene.events.once("shutdown", dispose);
     scene.events.once("destroy", dispose);
-    root.render();
+    rootInstance.render();
     return {
-        update: (newProps: any) => {
+        update: (next: any) => {
             if (disposed) return;
-            root.props = newProps;
-            root.render();
+            rootInstance.props = isVNodeRoot ? { vnode: next as any } : next;
+            rootInstance.render();
         },
         unmount: () => {
             dispose();

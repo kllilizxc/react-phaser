@@ -24,7 +24,7 @@ npm install @realiz3r/react-phaser
 ```
 
 > [!NOTE]
-> This library requires **Phaser 3.60+** and targets **ES2020+**.
+> This library requires **Phaser 3.80+** and targets **ES2020+**.
 
 ## 📖 Quick Start
 
@@ -50,7 +50,10 @@ function Player({ x, y }: { x: number, y: number }) {
 
 class GameScene extends Phaser.Scene {
   create() {
+    // Mount a VNode (React-style):
     mountRoot(this, createNode(Player, { x: 100, y: 100 }));
+    // Or mount a root component + props:
+    // mountRoot(this, Player, { x: 100, y: 100 });
   }
 }
 ```
@@ -61,13 +64,24 @@ class GameScene extends Phaser.Scene {
 
 | Type | Description | Key Props |
 | :--- | :--- | :--- |
-| `container` | Groups children into a `Phaser.GameObjects.Container`. | `x`, `y`, `width`/`height`, `interactive` |
+| `container` | Groups children into a `Phaser.GameObjects.Container`. | `x`, `y`, `width`/`height`, input handlers |
 | `text` | Renders a `Phaser.GameObjects.Text`. | `text`, `fontSize`, `color`, `wordWrapWidth` |
 | `sprite` / `image`| Renders standard textures. | `texture`, `frame`, `tint`, `flipX`/`flipY` |
 | `rect` / `graphics`| Renders graphics-backed shapes. | `fill`, `lineColor`, `strokeWidth` |
 | `physics-sprite` | Arcade Physics enabled sprite. | `velocityX`/`Y`, `bounce`, `drag`, `gravityY` |
 | `physics-group` | Managed Arcade Group for pooling. | `config` (Phaser Group Config) |
 | `fragment` | Transparent wrapper for multiple children. | (None) |
+
+### Interactivity & Input
+
+You can attach input handlers to most nodes:
+`onClick`, `onPointerDown`, `onPointerUp`, `onPointerMove`, `onPointerOver`, `onPointerOut`, `onWheel`,
+`onDragStart`, `onDrag`, `onDragEnd`, `onDragEnter`, `onDragOver`, `onDragLeave`, `onDrop`.
+
+- **Auto-interactive**: if you provide any input handler (or `draggable` / `dropZone`), the node becomes interactive without needing `interactive: true`.
+- **Auto-draggable**: if you provide any drag handler, `draggable` defaults to `true` (override with an explicit `draggable: false`).
+- **Hit areas**: `container` and `rect`/`graphics` need a hit area. Provide `width`/`height` (or `w`/`h`) or pass `hitArea`/`hitAreaCallback`.
+- **Extras**: `useHandCursor`, `cursor`, `pixelPerfect`, `alphaTolerance`, `draggable`, `dropZone`.
 
 ### Hooks Reference
 
@@ -80,15 +94,65 @@ class GameScene extends Phaser.Scene {
 | `useMemo` / `useCallback` | Performance optimization for values and functions. |
 | `useEvent(handler)` | Stable identity for event callbacks. |
 | `useScene()` | Access the current `Phaser.Scene`. |
-| `useEffect(cb, deps)` | Side effects after render (asynchronous). |
-| `useLayoutEffect(cb, deps)`| Side effects before Phaser commits updates. |
+| `useLayoutEffect(cb, deps)`| Runs after Phaser objects commit (before `useEffect`). |
+| `useEffect(cb, deps)` | Runs after commit (after `useLayoutEffect`). |
 | `onMount(cb)` | Utility for one-time initialization logic. |
 
 ---
 
+## 🧭 Frame Lifecycle & Syncing (Read This)
+
+React Phaser intentionally separates **game loop logic** (Phaser's `update`) from **render/commit** (reconciliation that creates/updates/destroys Phaser objects).
+
+### Frame Lifecycle (High-level)
+
+1. Phaser emits `update` → your `useUpdate(...)` callbacks run.
+2. If you call `setState(...)` / mutate a store, a render is **queued** (microtask).
+3. After the current tick finishes, reconciliation runs and **commits** Phaser object updates.
+4. `useLayoutEffect(...)` runs right after commit, then `useEffect(...)`.
+
+This means **state updates do not immediately change the Phaser world** inside the same `useUpdate` callback.
+
+### Common Pitfall: "Write State" then "Read Phaser World" in the Same Tick
+
+> [!WARNING]
+> Don’t spawn via `setState(...)` and then “cleanup/sync” by reading `group.children` in the same `useUpdate` pass.
+> The group still reflects the previous committed render, so your sync logic can accidentally delete the just-spawned items (e.g. projectile counts oscillate).
+
+```ts
+// ❌ Buggy pattern (state write + Phaser read for sync in the same tick)
+useUpdate(() => {
+  setProjectiles((prev) => [...prev, spawnProjectile()]);
+
+  // Still reflects the previous commit (the new projectile isn't in the group yet)
+  const idsInWorld = new Set(projectilesGroup.children.entries.map((c) => c.getData("id")));
+  setProjectiles((prev) => prev.filter((p) => idsInWorld.has(p.id)));
+});
+```
+
+**Avoid these patterns:**
+- Calling `setProjectiles(...)` and then immediately filtering state based on `projectilesGroup.children`.
+- Treating Phaser objects as the source of truth and trying to “sync state to match them” every frame.
+
+**Prefer one of these approaches:**
+- **State is the source of truth:** compute the *entire* next state in a single `setState(prev => next)` without reading Phaser world.
+- **Order your pass:** do any Phaser-world-derived cleanup first, then spawn (still in one tick), or combine both into one state update.
+- **Read-after-commit:** if you must observe the committed Phaser world, do it in `useLayoutEffect` / `useEffect` that runs after reconciliation.
+
+```ts
+// ✅ Compute next state in one pass (no Phaser-world sync needed)
+useUpdate(() => {
+  setProjectiles((prev) => {
+    const cleaned = prev.filter((p) => !p.dead);
+    return [...cleaned, spawnProjectile()];
+  });
+});
+```
+
 ## 📦 State Management (`game-state`)
 
 The library includes a lightweight, Pinia-inspired state management system optimized for game development.
+Mutations are batched per action and recorded by key/path (e.g. `score`, `player.hp`).
 
 ### Defining a Store
 
@@ -118,6 +182,17 @@ function ScoreDisplay() {
   const score = useStore(useGameStore, s => s.score);
   return createNode('text', { text: `Score: ${score}`, x: 10, y: 10 });
 }
+```
+
+### Watching State
+
+You can watch store-derived values outside React-style rendering:
+
+```typescript
+const store = useGameStore();
+store.$watch(s => s.player, (next, prev, mutation) => {
+  console.log(mutation.action, mutation.changes);
+});
 ```
 
 ---
@@ -162,8 +237,11 @@ You can customize the behavior of the state manager:
 import { GameState } from '@realiz3r/react-phaser';
 
 GameState.config({
-  loggingEnabled: true, // Set to false to disable action logging
-  maxLogSize: 500       // Customize the number of mutations to keep in memory (default: 1000)
+  loggingEnabled: true,         // Set to false to disable action logging
+  maxLogSize: 500,              // Customize the number of mutations to keep in memory (default: 1000)
+  cloneSnapshots: true,         // Return stable snapshots (deep-cloned)
+  cloneMutations: true,         // Store stable log entries (deep-cloned)
+  nonActionMutation: 'warn'     // 'ignore' | 'warn' | 'throw'
 });
 ```
 

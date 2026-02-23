@@ -81,6 +81,26 @@ describe("react-phaser reconciler", () => {
         root.unmount();
     });
 
+    it("treats 'graphics' and 'rect' as the same node type", () => {
+        const scene = createMockScene();
+        const graphicsRef = { current: null as Phaser.GameObjects.Graphics | null };
+
+        function App(props: { kind: "graphics" | "rect" }) {
+            return createNode(props.kind, { ref: graphicsRef, width: 10, height: 20, fill: 0x123456 });
+        }
+
+        const root = mountRoot(scene as any, App, { kind: "graphics" });
+        const graphics = graphicsRef.current as any;
+        expect(graphics).toBeTruthy();
+
+        const destroySpy = vi.spyOn(graphics, "destroy");
+        root.update({ kind: "rect" });
+
+        expect(graphicsRef.current).toBe(graphics);
+        expect(destroySpy).not.toHaveBeenCalled();
+        root.unmount();
+    });
+
     it("reorders keyed children under a container to match VNode order", () => {
         const scene = createMockScene();
         const containerRef = { current: null as Phaser.GameObjects.Container | null };

@@ -1,4 +1,5 @@
 import type Phaser from "phaser";
+import { devWarnOnce } from "./dev";
 import { scheduleRender } from "./scheduler";
 import { consumeHookIndex, requireCurrentContext } from "./hook-runtime";
 
@@ -31,46 +32,121 @@ export function useStore<T, U = T>(storeHook: () => T, selector?: (store: T) => 
 
     const store = storeHook() as any;
 
-    if (!ctx.hooks[index]) {
-        const selected = selector ? selector(store) : store;
-        const state = { value: selected as any, store, selector };
-        ctx.hooks[index] = { state };
+    const isDeepValue = (value: any) => value !== null && (typeof value === "object" || typeof value === "function");
+    const pathsIntersect = (a: string, b: string) => {
+        if (a === "" || b === "") return true;
+        if (a === b) return true;
+        if (a.startsWith(`${b}.`)) return true;
+        if (b.startsWith(`${a}.`)) return true;
+        return false;
+    };
 
-        // Subscribe after commit (avoid side effects during render)
-        ctx.addLayoutEffect(() => {
-            if (!store.$subscribe) return;
+    const select = (nextStore: any, nextSelector?: ((s: any) => any)) => {
+        if (!nextSelector) return { value: nextStore, deps: null as string[] | null };
+        if (typeof nextStore?.$track === "function") {
+            try {
+                const res = nextStore.$track((s: any) => nextSelector(s));
+                if (res && typeof res === "object" && Array.isArray(res.deps)) {
+                    return { value: res.value, deps: res.deps as string[] };
+                }
+            } catch {
+                // Fall through.
+            }
+        }
+        return { value: nextSelector(nextStore), deps: null as string[] | null };
+    };
 
-            const unsubscribe = store.$subscribe(() => {
-                if (ctx.unmounted) return;
-                const { store: latestStore, selector: latestSelector } = ctx.hooks[index].state;
-                if (latestSelector) {
-                    const nextValue = latestSelector(latestStore);
-                    if (nextValue !== ctx.hooks[index].state.value) {
-                        ctx.hooks[index].state.value = nextValue;
-                        scheduleRender(ctx);
-                    }
-                } else {
+    const refreshSubscription = () => {
+        const hook = ctx.hooks[index];
+        if (!hook) return;
+
+        const hookState = hook.state;
+        const nextStore = hookState.store;
+
+        if (hookState.subscribedStore === nextStore) return;
+
+        if (hook.cleanup) {
+            hook.cleanup();
+            hook.cleanup = undefined;
+        }
+
+        hookState.subscribedStore = nextStore;
+
+        if (!nextStore?.$subscribe) {
+            devWarnOnce(
+                "react-phaser:useStore:missing-subscribe",
+                "react-phaser: useStore(...) received a store without $subscribe(); it will not re-render on updates."
+            );
+            return;
+        }
+
+        const unsubscribe = nextStore.$subscribe((mutation: any) => {
+            if (ctx.unmounted) return;
+
+            const latestHook = ctx.hooks[index];
+            if (!latestHook) return;
+
+            const latestState = latestHook.state;
+
+            // Ignore mutations from an old store instance if the hook switched stores.
+            if (latestState.store !== nextStore) return;
+
+            const latestSelector = latestState.selector;
+            const deps = latestState.deps;
+
+            if (latestSelector) {
+                const changedKeys: string[] | null =
+                    mutation && Array.isArray(mutation.changes)
+                        ? mutation.changes.map((c: any) => c?.key).filter((k: any) => typeof k === "string")
+                        : null;
+
+                if (Array.isArray(deps) && changedKeys) {
+                    const matches = deps.length === 0 || changedKeys.some((k) => deps.some((d) => pathsIntersect(d, k)));
+                    if (!matches) return;
+                }
+
+                const next = select(nextStore, latestSelector as any);
+                latestState.deps = next.deps;
+
+                if (next.value !== latestState.value || isDeepValue(next.value)) {
+                    latestState.value = next.value;
                     scheduleRender(ctx);
                 }
-            });
-
-            ctx.hooks[index].cleanup = () => unsubscribe();
-
-            // Catch up in case the store changed between render and subscribing
-            const { store: latestStore, selector: latestSelector } = ctx.hooks[index].state;
-            const nextValue = latestSelector ? latestSelector(latestStore) : latestStore;
-            if (nextValue !== ctx.hooks[index].state.value) {
-                ctx.hooks[index].state.value = nextValue;
-                scheduleRender(ctx);
+                return;
             }
+
+            scheduleRender(ctx);
         });
+
+        hook.cleanup = () => unsubscribe();
+
+        // Catch up in case the store changed between render and subscribing
+        const next = select(nextStore, hookState.selector as any);
+        hookState.deps = next.deps;
+        if (next.value !== hookState.value) {
+            hookState.value = next.value;
+            scheduleRender(ctx);
+        }
+    };
+
+    if (!ctx.hooks[index]) {
+        const selected = select(store, selector as any);
+        const state = { value: selected.value as any, store, selector, deps: selected.deps, subscribedStore: null as any };
+        ctx.hooks[index] = { state };
     }
 
     // Keep selector/store references fresh and return a render-time snapshot
     const hookState = ctx.hooks[index].state;
     hookState.store = store;
     hookState.selector = selector;
-    hookState.value = selector ? selector(store) : store;
+    const next = select(store, selector as any);
+    hookState.deps = next.deps;
+    hookState.value = next.value;
+
+    // Subscribe after commit (avoid side effects during render) and refresh when the store instance changes.
+    if (hookState.subscribedStore !== store) {
+        ctx.addLayoutEffect(refreshSubscription);
+    }
     return hookState.value;
 }
 
@@ -79,7 +155,9 @@ export function useScene(): Phaser.Scene {
     return ctx.scene;
 }
 
-export function useRef<T>(initialValue: T): { current: T } {
+export function useRef<T>(initialValue: T): { current: T };
+export function useRef<T>(initialValue: T | null): { current: T | null };
+export function useRef<T>(initialValue: T | null): { current: T | null } {
     const ctx = requireCurrentContext("useRef");
     const index = consumeHookIndex();
 
@@ -222,4 +300,3 @@ export function useEffect(callback: () => void | (() => void), deps?: any[]) {
         });
     }
 }
-

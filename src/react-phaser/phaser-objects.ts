@@ -7,7 +7,12 @@ const INTERNAL_PROP_KEYS = new Set([
     "alpha", "visible", "scale",
     "originX", "originY",
     "rotation",
-    "interactive", "useHandCursor", "onClick", "onPointerOver", "onPointerOut",
+    "interactive", "useHandCursor", "cursor", "pixelPerfect", "alphaTolerance", "dropZone", "hitArea", "hitAreaCallback", "draggable",
+    "onClick",
+    "onPointerDown", "onPointerUp", "onPointerMove", "onPointerOver", "onPointerOut",
+    "onWheel",
+    "onDragStart", "onDrag", "onDragEnd",
+    "onDragEnter", "onDragLeave", "onDragOver", "onDrop",
     "texture", "frame", "tint", "flipX", "flipY", "play",
     "velocityX", "velocityY", "collideWorldBounds", "bounce", "drag", "gravityY", "immovable",
     "bodyWidth", "bodyHeight", "bodyWidthRatio", "bodyHeightRatio", "bodyOffsetX", "bodyOffsetY",
@@ -103,63 +108,221 @@ export function updatePhaserObject(obj: any, type: string, newProps: any, oldPro
         else if (!isDirect) obj.setDepth(0);
     }
 
+    const nextWidth = newProps.width ?? newProps.w;
+    const nextHeight = newProps.height ?? newProps.h;
+    const prevWidth = oldProps.width ?? oldProps.w;
+    const prevHeight = oldProps.height ?? oldProps.h;
+
     // Size (Must be set BEFORE interactive for containers)
-    if (newProps.width !== oldProps.width || newProps.height !== oldProps.height) {
-        if (typeof obj.setSize === "function" && newProps.width !== undefined && newProps.height !== undefined) {
-            obj.setSize(newProps.width, newProps.height);
+    if (nextWidth !== prevWidth || nextHeight !== prevHeight) {
+        if (typeof obj.setSize === "function" && nextWidth !== undefined && nextHeight !== undefined) {
+            obj.setSize(nextWidth, nextHeight);
         }
     }
 
     // Interactivity
-    if (newProps.interactive !== oldProps.interactive || (newProps.interactive && (newProps.width !== oldProps.width || newProps.height !== oldProps.height))) {
-        if (newProps.interactive) {
-            if ((type === "rect" || type === "graphics") && (newProps.width === undefined || newProps.height === undefined)) {
+    const inputType = (() => {
+        let t = type;
+        if (t === "graphics") t = "rect";
+        if (t === "direct") {
+            if (obj instanceof Phaser.Physics.Arcade.Sprite) t = "physics-sprite";
+            else if (obj instanceof Phaser.GameObjects.Sprite) t = "sprite";
+            else if (obj instanceof Phaser.GameObjects.Image) t = "image";
+            else if (obj instanceof Phaser.GameObjects.Text) t = "text";
+            else if (obj instanceof Phaser.GameObjects.Container) t = "container";
+            else if (obj instanceof Phaser.GameObjects.Graphics) t = "rect";
+        }
+        return t;
+    })();
+
+    const hasAnyDragHandlers = (props: any) => !!(
+        props.onDragStart || props.onDrag || props.onDragEnd ||
+        props.onDragEnter || props.onDragLeave || props.onDragOver || props.onDrop
+    );
+
+    const resolveDraggable = (props: any) =>
+        (props.draggable !== undefined) ? !!props.draggable : hasAnyDragHandlers(props);
+
+    const hasAnyInputHandlers = (props: any) => !!(
+        props.onClick ||
+        props.onPointerDown || props.onPointerUp || props.onPointerMove || props.onPointerOver || props.onPointerOut ||
+        props.onWheel ||
+        hasAnyDragHandlers(props)
+    );
+
+    const isHitAreaRequired = inputType === "rect" || inputType === "container";
+    const canCreateRectHitArea = isHitAreaRequired && nextWidth !== undefined && nextHeight !== undefined;
+    const hasHitArea = newProps.hitArea !== undefined || canCreateRectHitArea;
+
+    const prevIsHitAreaRequired = inputType === "rect" || inputType === "container";
+    const prevCanCreateRectHitArea = prevIsHitAreaRequired && prevWidth !== undefined && prevHeight !== undefined;
+    const prevHasHitArea = oldProps.hitArea !== undefined || prevCanCreateRectHitArea;
+
+    const nextInteractive =
+        (newProps.interactive !== undefined)
+            ? !!newProps.interactive
+            : (!!(hasAnyInputHandlers(newProps) || newProps.draggable || newProps.dropZone) && (!isHitAreaRequired || hasHitArea));
+
+    const prevInteractive =
+        (oldProps.interactive !== undefined)
+            ? !!oldProps.interactive
+            : (!!(hasAnyInputHandlers(oldProps) || oldProps.draggable || oldProps.dropZone) && (!prevIsHitAreaRequired || prevHasHitArea));
+
+    const nextResolvedDraggable = resolveDraggable(newProps);
+    const prevResolvedDraggable = resolveDraggable(oldProps);
+
+    const interactiveConfigChanged =
+        (newProps.useHandCursor !== oldProps.useHandCursor) ||
+        (newProps.cursor !== oldProps.cursor) ||
+        (newProps.pixelPerfect !== oldProps.pixelPerfect) ||
+        (newProps.alphaTolerance !== oldProps.alphaTolerance) ||
+        (newProps.dropZone !== oldProps.dropZone) ||
+        (nextResolvedDraggable !== prevResolvedDraggable) ||
+        (newProps.hitArea !== oldProps.hitArea) ||
+        (newProps.hitAreaCallback !== oldProps.hitAreaCallback) ||
+        ((isHitAreaRequired && newProps.hitArea === undefined) && (nextWidth !== prevWidth || nextHeight !== prevHeight));
+
+    if (prevInteractive !== nextInteractive || (nextInteractive && interactiveConfigChanged)) {
+        if (nextInteractive) {
+            const wantsHandCursor =
+                (newProps.useHandCursor !== undefined)
+                    ? newProps.useHandCursor
+                    : !!(
+                        newProps.onClick ||
+                        newProps.onPointerDown || newProps.onPointerUp ||
+                        newProps.onWheel ||
+                        newProps.onDragStart || newProps.onDrag || newProps.onDragEnd ||
+                        nextResolvedDraggable
+                    );
+
+            if (newProps.interactive && (inputType === "rect") && !hasHitArea) {
                 devWarnOnce(
-                    "react-phaser:interactive:graphics-missing-size",
-                    "react-phaser: 'rect'/'graphics' with interactive=true should specify width and height to create a hit area."
+                    "react-phaser:interactive:graphics-missing-hitarea",
+                    "react-phaser: 'rect'/'graphics' with interactive=true should specify width/height (or hitArea/hitAreaCallback) to create a hit area."
                 );
             }
-            if (type === "container" && (newProps.width === undefined || newProps.height === undefined)) {
+            if (newProps.interactive && inputType === "container" && !hasHitArea) {
                 devWarnOnce(
-                    "react-phaser:interactive:container-missing-size",
-                    "react-phaser: 'container' with interactive=true should specify width and height (Containers have no intrinsic hit area)."
+                    "react-phaser:interactive:container-missing-hitarea",
+                    "react-phaser: 'container' with interactive=true should specify width/height (or hitArea/hitAreaCallback); Containers have no intrinsic hit area."
                 );
             }
 
-            if ((type === "rect" || type === "graphics") && newProps.width !== undefined && newProps.height !== undefined) {
-                // Graphics objects do not have a default hit area
-                obj.setInteractive(new Phaser.Geom.Rectangle(0, 0, newProps.width, newProps.height), Phaser.Geom.Rectangle.Contains);
-            } else {
-                obj.setInteractive({ useHandCursor: newProps.useHandCursor ?? (!!newProps.onClick) });
+            const config: any = { useHandCursor: wantsHandCursor };
+            if (newProps.cursor !== undefined) config.cursor = newProps.cursor;
+            if (newProps.pixelPerfect !== undefined) config.pixelPerfect = newProps.pixelPerfect;
+            if (newProps.alphaTolerance !== undefined) config.alphaTolerance = newProps.alphaTolerance;
+
+            if (newProps.dropZone !== undefined || oldProps.dropZone !== undefined) {
+                config.dropZone = newProps.dropZone ?? false;
             }
-        } else {
+            if (hasAnyDragHandlers(newProps) || hasAnyDragHandlers(oldProps) || newProps.draggable !== undefined || oldProps.draggable !== undefined) {
+                config.draggable = nextResolvedDraggable;
+            }
+
+            if (newProps.hitArea !== undefined) {
+                config.hitArea = newProps.hitArea;
+                if (newProps.hitAreaCallback !== undefined) config.hitAreaCallback = newProps.hitAreaCallback;
+            } else if (canCreateRectHitArea) {
+                config.hitArea = new Phaser.Geom.Rectangle(0, 0, nextWidth, nextHeight);
+                config.hitAreaCallback = Phaser.Geom.Rectangle.Contains;
+            }
+
+            obj.setInteractive(config);
+        } else if (typeof obj.disableInteractive === "function") {
             obj.disableInteractive();
+        }
+    }
+
+    // Draggable is sometimes scene-managed (Phaser's InputPlugin).
+    // Keep it in sync when possible.
+    const prevDraggable = prevInteractive ? prevResolvedDraggable : false;
+    const nextDraggable = nextInteractive ? nextResolvedDraggable : false;
+    if (prevDraggable !== nextDraggable) {
+        const input = (obj as any)?.scene?.input;
+        if (input && typeof input.setDraggable === "function") {
+            input.setDraggable(obj, nextDraggable);
         }
     }
 
     // Event listeners
     // Attach stable internal wrappers once and swap the current handlers to avoid detach/attach churn.
-    const hadHandlers = !!(oldProps.onClick || oldProps.onPointerOver || oldProps.onPointerOut);
-    const hasHandlers = !!(newProps.onClick || newProps.onPointerOver || newProps.onPointerOut);
+    const hadHandlers = !!(
+        oldProps.onClick ||
+        oldProps.onPointerDown || oldProps.onPointerUp || oldProps.onPointerMove || oldProps.onPointerOver || oldProps.onPointerOut ||
+        oldProps.onWheel ||
+        oldProps.onDragStart || oldProps.onDrag || oldProps.onDragEnd ||
+        oldProps.onDragEnter || oldProps.onDragLeave || oldProps.onDragOver || oldProps.onDrop
+    );
+    const hasHandlers = !!(
+        newProps.onClick ||
+        newProps.onPointerDown || newProps.onPointerUp || newProps.onPointerMove || newProps.onPointerOver || newProps.onPointerOut ||
+        newProps.onWheel ||
+        newProps.onDragStart || newProps.onDrag || newProps.onDragEnd ||
+        newProps.onDragEnter || newProps.onDragLeave || newProps.onDragOver || newProps.onDrop
+    );
     if ((hadHandlers || hasHandlers) && typeof obj.on === "function") {
         type HandlerState = {
             onClick?: (...args: any[]) => void;
+            onPointerDown?: (...args: any[]) => void;
+            onPointerUp?: (...args: any[]) => void;
+            onPointerMove?: (...args: any[]) => void;
             onPointerOver?: (...args: any[]) => void;
             onPointerOut?: (...args: any[]) => void;
+            onWheel?: (...args: any[]) => void;
+            onDragStart?: (...args: any[]) => void;
+            onDrag?: (...args: any[]) => void;
+            onDragEnd?: (...args: any[]) => void;
+            onDragEnter?: (...args: any[]) => void;
+            onDragLeave?: (...args: any[]) => void;
+            onDragOver?: (...args: any[]) => void;
+            onDrop?: (...args: any[]) => void;
             pointerdown?: (...args: any[]) => void;
+            pointerup?: (...args: any[]) => void;
+            pointermove?: (...args: any[]) => void;
             pointerover?: (...args: any[]) => void;
             pointerout?: (...args: any[]) => void;
+            wheel?: (...args: any[]) => void;
+            dragstart?: (...args: any[]) => void;
+            drag?: (...args: any[]) => void;
+            dragend?: (...args: any[]) => void;
+            dragenter?: (...args: any[]) => void;
+            dragleave?: (...args: any[]) => void;
+            dragover?: (...args: any[]) => void;
+            drop?: (...args: any[]) => void;
         };
 
         const state: HandlerState = (obj as any).__v_inputHandlers || ((obj as any).__v_inputHandlers = {});
 
         state.onClick = (typeof newProps.onClick === "function") ? newProps.onClick : undefined;
+        state.onPointerDown = (typeof newProps.onPointerDown === "function") ? newProps.onPointerDown : undefined;
+        state.onPointerUp = (typeof newProps.onPointerUp === "function") ? newProps.onPointerUp : undefined;
+        state.onPointerMove = (typeof newProps.onPointerMove === "function") ? newProps.onPointerMove : undefined;
         state.onPointerOver = (typeof newProps.onPointerOver === "function") ? newProps.onPointerOver : undefined;
         state.onPointerOut = (typeof newProps.onPointerOut === "function") ? newProps.onPointerOut : undefined;
+        state.onWheel = (typeof newProps.onWheel === "function") ? newProps.onWheel : undefined;
+        state.onDragStart = (typeof newProps.onDragStart === "function") ? newProps.onDragStart : undefined;
+        state.onDrag = (typeof newProps.onDrag === "function") ? newProps.onDrag : undefined;
+        state.onDragEnd = (typeof newProps.onDragEnd === "function") ? newProps.onDragEnd : undefined;
+        state.onDragEnter = (typeof newProps.onDragEnter === "function") ? newProps.onDragEnter : undefined;
+        state.onDragLeave = (typeof newProps.onDragLeave === "function") ? newProps.onDragLeave : undefined;
+        state.onDragOver = (typeof newProps.onDragOver === "function") ? newProps.onDragOver : undefined;
+        state.onDrop = (typeof newProps.onDrop === "function") ? newProps.onDrop : undefined;
 
-        if ((oldProps.onClick || newProps.onClick) && !state.pointerdown) {
-            state.pointerdown = (...args: any[]) => state.onClick?.apply(obj, args);
+        if ((oldProps.onClick || newProps.onClick || oldProps.onPointerDown || newProps.onPointerDown) && !state.pointerdown) {
+            state.pointerdown = (...args: any[]) => {
+                state.onPointerDown?.apply(obj, args);
+                state.onClick?.apply(obj, args);
+            };
             obj.on("pointerdown", state.pointerdown);
+        }
+        if ((oldProps.onPointerUp || newProps.onPointerUp) && !state.pointerup) {
+            state.pointerup = (...args: any[]) => state.onPointerUp?.apply(obj, args);
+            obj.on("pointerup", state.pointerup);
+        }
+        if ((oldProps.onPointerMove || newProps.onPointerMove) && !state.pointermove) {
+            state.pointermove = (...args: any[]) => state.onPointerMove?.apply(obj, args);
+            obj.on("pointermove", state.pointermove);
         }
         if ((oldProps.onPointerOver || newProps.onPointerOver) && !state.pointerover) {
             state.pointerover = (...args: any[]) => state.onPointerOver?.apply(obj, args);
@@ -168,6 +331,38 @@ export function updatePhaserObject(obj: any, type: string, newProps: any, oldPro
         if ((oldProps.onPointerOut || newProps.onPointerOut) && !state.pointerout) {
             state.pointerout = (...args: any[]) => state.onPointerOut?.apply(obj, args);
             obj.on("pointerout", state.pointerout);
+        }
+        if ((oldProps.onWheel || newProps.onWheel) && !state.wheel) {
+            state.wheel = (...args: any[]) => state.onWheel?.apply(obj, args);
+            obj.on("wheel", state.wheel);
+        }
+        if ((oldProps.onDragStart || newProps.onDragStart) && !state.dragstart) {
+            state.dragstart = (...args: any[]) => state.onDragStart?.apply(obj, args);
+            obj.on("dragstart", state.dragstart);
+        }
+        if ((oldProps.onDrag || newProps.onDrag) && !state.drag) {
+            state.drag = (...args: any[]) => state.onDrag?.apply(obj, args);
+            obj.on("drag", state.drag);
+        }
+        if ((oldProps.onDragEnd || newProps.onDragEnd) && !state.dragend) {
+            state.dragend = (...args: any[]) => state.onDragEnd?.apply(obj, args);
+            obj.on("dragend", state.dragend);
+        }
+        if ((oldProps.onDragEnter || newProps.onDragEnter) && !state.dragenter) {
+            state.dragenter = (...args: any[]) => state.onDragEnter?.apply(obj, args);
+            obj.on("dragenter", state.dragenter);
+        }
+        if ((oldProps.onDragLeave || newProps.onDragLeave) && !state.dragleave) {
+            state.dragleave = (...args: any[]) => state.onDragLeave?.apply(obj, args);
+            obj.on("dragleave", state.dragleave);
+        }
+        if ((oldProps.onDragOver || newProps.onDragOver) && !state.dragover) {
+            state.dragover = (...args: any[]) => state.onDragOver?.apply(obj, args);
+            obj.on("dragover", state.dragover);
+        }
+        if ((oldProps.onDrop || newProps.onDrop) && !state.drop) {
+            state.drop = (...args: any[]) => state.onDrop?.apply(obj, args);
+            obj.on("drop", state.drop);
         }
     }
 
@@ -183,8 +378,8 @@ export function updatePhaserObject(obj: any, type: string, newProps: any, oldPro
     }
 
     switch (effectiveType) {
-        case "text":
-            if (newProps.text !== oldProps.text) obj.setText(newProps.text || "");
+	        case "text":
+	            if (newProps.text !== oldProps.text) obj.setText(newProps.text || "");
             if (applyDefaultsOnMount || newProps.fontSize !== oldProps.fontSize) {
                 const fontSize = newProps.fontSize !== undefined
                     ? (typeof newProps.fontSize === "number" ? `${newProps.fontSize}px` : newProps.fontSize)
@@ -207,16 +402,22 @@ export function updatePhaserObject(obj: any, type: string, newProps: any, oldPro
                 if (typeof obj.setAlign === "function") obj.setAlign(align);
                 else if (typeof obj.setStyle === "function") obj.setStyle({ align });
             }
-            if (applyDefaultsOnMount || newProps.wordWrapWidth !== oldProps.wordWrapWidth || newProps.wordWrapAdvanced !== oldProps.wordWrapAdvanced) {
-                const width = newProps.wordWrapWidth ?? null;
-                const useAdvanced = newProps.wordWrapAdvanced ?? false;
-                if (typeof obj.setWordWrapWidth === "function") obj.setWordWrapWidth(width, useAdvanced);
-                else if (obj.style && typeof obj.style.setWordWrapWidth === "function") obj.style.setWordWrapWidth(width, useAdvanced);
-            }
-            break;
+		            const wrapRelevant =
+		                newProps.wordWrapWidth !== undefined ||
+		                oldProps.wordWrapWidth !== undefined ||
+		                newProps.wordWrapAdvanced !== undefined ||
+		                oldProps.wordWrapAdvanced !== undefined;
+		            const wrapChanged = newProps.wordWrapWidth !== oldProps.wordWrapWidth || newProps.wordWrapAdvanced !== oldProps.wordWrapAdvanced;
+		            if (wrapRelevant && (isMount || wrapChanged)) {
+		                const width = newProps.wordWrapWidth ?? 0;
+		                const useAdvanced = newProps.wordWrapAdvanced ?? false;
+		                if (typeof obj.setWordWrapWidth === "function") obj.setWordWrapWidth(width, useAdvanced);
+		                else if (obj.style && typeof obj.style.setWordWrapWidth === "function") obj.style.setWordWrapWidth(width, useAdvanced);
+		            }
+		            break;
         case "rect":
             // Only redraw graphics if properties changed
-            if (newProps.width !== oldProps.width || newProps.height !== oldProps.height ||
+            if (nextWidth !== prevWidth || nextHeight !== prevHeight ||
                 newProps.fill !== oldProps.fill ||
                 newProps.strokeWidth !== oldProps.strokeWidth || newProps.lineColor !== oldProps.lineColor) {
 
@@ -224,11 +425,11 @@ export function updatePhaserObject(obj: any, type: string, newProps: any, oldPro
                 g.clear();
                 if (newProps.fill !== undefined) {
                     g.fillStyle(newProps.fill, 1);
-                    g.fillRect(0, 0, newProps.width || 0, newProps.height || 0);
+                    g.fillRect(0, 0, nextWidth || 0, nextHeight || 0);
                 }
                 if (newProps.strokeWidth && newProps.lineColor !== undefined) {
                     g.lineStyle(newProps.strokeWidth, newProps.lineColor, 1);
-                    g.strokeRect(0, 0, newProps.width || 0, newProps.height || 0);
+                    g.strokeRect(0, 0, nextWidth || 0, nextHeight || 0);
                 }
             }
             break;
@@ -342,4 +543,3 @@ export function updatePhaserObject(obj: any, type: string, newProps: any, oldPro
         }
     }
 }
-

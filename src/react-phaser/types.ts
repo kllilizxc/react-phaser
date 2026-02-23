@@ -20,6 +20,22 @@ export type ComponentType<P = any> = (props: P) => VNode | null;
 
 export type VNodeType = HostVNodeType | ComponentType<any> | Phaser.GameObjects.GameObject | Phaser.GameObjects.Group;
 
+export type PointerHandler = (pointer: Phaser.Input.Pointer, localX: number, localY: number, event: Phaser.Types.Input.EventData) => void;
+
+export type PointerOutHandler = (pointer: Phaser.Input.Pointer, event: Phaser.Types.Input.EventData) => void;
+
+export type DragStartHandler = (pointer: Phaser.Input.Pointer, dragX: number, dragY: number) => void;
+
+export type DragHandler = (pointer: Phaser.Input.Pointer, dragX: number, dragY: number) => void;
+
+export type DragEndHandler = (pointer: Phaser.Input.Pointer, dragX: number, dragY: number, dropped: boolean) => void;
+
+export type DragTargetHandler = (pointer: Phaser.Input.Pointer, target: Phaser.GameObjects.GameObject) => void;
+
+export type WheelHandler = (pointer: Phaser.Input.Pointer, deltaX: number, deltaY: number, deltaZ: number, event: Phaser.Types.Input.EventData) => void;
+
+export type HitAreaCallback = Phaser.Types.Input.HitAreaCallback;
+
 export interface BaseProps {
     key?: Key;
     ref?: RefObject<any>;
@@ -39,9 +55,27 @@ export interface BaseProps {
     rotation?: number;
     interactive?: boolean;
     useHandCursor?: boolean;
-    onClick?: (...args: any[]) => void;
-    onPointerOver?: (...args: any[]) => void;
-    onPointerOut?: (...args: any[]) => void;
+    cursor?: string;
+    pixelPerfect?: boolean;
+    alphaTolerance?: number;
+    dropZone?: boolean;
+    hitArea?: any;
+    hitAreaCallback?: HitAreaCallback;
+    onClick?: PointerHandler;
+    onPointerDown?: PointerHandler;
+    onPointerUp?: PointerHandler;
+    onPointerMove?: PointerHandler;
+    onPointerOver?: PointerHandler;
+    onPointerOut?: PointerOutHandler;
+    onWheel?: WheelHandler;
+    onDragStart?: DragStartHandler;
+    onDrag?: DragHandler;
+    onDragEnd?: DragEndHandler;
+    onDragEnter?: DragTargetHandler;
+    onDragLeave?: DragTargetHandler;
+    onDragOver?: DragTargetHandler;
+    onDrop?: DragTargetHandler;
+    draggable?: boolean;
     [key: string]: any;
 }
 
@@ -122,4 +156,3 @@ export interface VNode<TType extends VNodeType = VNodeType, TProps extends Recor
 export type VChild = VNode | null | undefined | false;
 
 export type PhaserHost = Phaser.GameObjects.GameObject | Phaser.GameObjects.Group;
-

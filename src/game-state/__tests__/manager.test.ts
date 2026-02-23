@@ -14,6 +14,40 @@ describe("game-state GameStateManager", () => {
         });
     });
 
+    it("snapshot() sorts store names for stable output", () => {
+        const mgr = new GameStateManager();
+        mgr.register("b", { $state: { n: 1 } });
+        mgr.register("a", { $state: { n: 2 } });
+
+        expect(Object.keys(mgr.snapshot())).toEqual(["a", "b"]);
+    });
+
+    it("snapshot() returns a stable clone", () => {
+        const mgr = new GameStateManager();
+        const state = { nested: { n: 1 } };
+        mgr.register("a", { $state: state });
+
+        const snap = mgr.snapshot();
+        state.nested.n = 2;
+
+        expect(snap.a.nested.n).toBe(1);
+    });
+
+    it("addLog() clones mutation payloads", () => {
+        const mgr = new GameStateManager();
+        const m: Mutation = {
+            t: 1,
+            store: "x",
+            action: "set",
+            changes: [{ key: "obj", old: { n: 0 }, new: { n: 1 } }],
+        };
+
+        mgr.addLog(m);
+        (m.changes[0].new as any).n = 999;
+
+        expect((mgr.getLog()[0].changes[0].new as any).n).toBe(1);
+    });
+
     it("keeps a bounded mutation log", () => {
         const mgr = new GameStateManager();
         for (let i = 0; i < 1001; i++) {
@@ -38,6 +72,33 @@ describe("game-state GameStateManager", () => {
         const parsed = JSON.parse(out);
         expect(parsed.snapshot).toEqual({ x: { n: 7 } });
         expect(parsed.log).toEqual([m]);
+    });
+
+    it("dump() is safe for circular and bigint values", () => {
+        const mgr = new GameStateManager();
+        const state: any = { n: 1n };
+        state.self = state;
+        mgr.register("x", { $state: state });
+
+        const out = mgr.dump();
+        const parsed = JSON.parse(out);
+        expect(parsed.snapshot.x.n).toBe("1n");
+        expect(parsed.snapshot.x.self).toMatch(/^\[Circular:/);
+    });
+
+    it("clones uncloneable mutation payloads into stable debug values", () => {
+        const mgr = new GameStateManager();
+        const fn = () => { };
+        mgr.addLog({
+            t: 1,
+            store: "x",
+            action: "set",
+            changes: [{ key: "fn", old: null, new: fn }],
+        });
+
+        const log = mgr.getLog();
+        expect(typeof log[0].changes[0].new).toBe("string");
+        expect(String(log[0].changes[0].new)).toMatch(/^\[Function/);
     });
 
     it("config() can disable logging", () => {

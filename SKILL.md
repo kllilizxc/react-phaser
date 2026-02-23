@@ -7,9 +7,9 @@ description: Use when working with React-style Phaser renderer package name '@re
 
 ## Quick start (this repo)
 
-- Mount the UI/game tree from a Phaser scene with `mountRoot(scene, GameRoot)` (see `src/scenes/MainScene.ts`).
-- Build the scene graph by returning `VNode`s from function components (see `src/scenes/main/GameRoot.ts`).
-- Use hooks for side effects and per-frame logic; keep component render output pure.
+- Core renderer implementation lives in `src/react-phaser/` and the store lives in `src/game-state/`.
+- Run tests: `npm test` (Phaser is mocked in `vitest.setup.ts`).
+- Build the library: `npm run build` (Vite bundle + `.d.ts` emit).
 
 ## Render primitives (VNode types)
 
@@ -19,7 +19,7 @@ Create nodes with:
 createNode(type, props, ...children)
 ```
 
-Supported built-in `type` strings and common props (see `src/lib/react-phaser.ts`):
+Supported built-in `type` strings and common props (see `src/react-phaser/types.ts` and `src/react-phaser/phaser-objects.ts`):
 
 - `container`: group children; supports `x`, `y`, `width`, `height`, `interactive`, pointer handlers.
 - `text`: `x`, `y`, `text`, `fontSize`, `color`, `fontStyle`, `originX`, `originY`.
@@ -38,8 +38,8 @@ Also supported:
 
 - Provide `key` for list children to get stable identity across renders.
 - For `physics-group`, the reconciler allocates sprites from the group pool via `group.get()` when a keyed child is added.
-- Do not wrap `physics-group` children in function components unless you know exactly how the pooled-object adoption works; simplest/most reliable is to inline `createNode('physics-sprite', { key: id, ... })` per item (see `src/scenes/main/components/EnemySpawner.ts` and `src/scenes/main/components/PowerupSpawner.ts`).
-- When syncing state from live pooled sprites, read the stored `key` from `(sprite as any).__v_props?.key` (see `BulletManager`/`EnemySpawner`).
+- Prefer direct `physics-sprite` children under `physics-group` (or components that return a single `physics-sprite`) to keep pooling behavior predictable (see `src/react-phaser/core.ts` and `src/react-phaser/__tests__/reconciler.test.ts`).
+- When syncing gameplay state from pooled sprites, you can read the last committed props (including `key`) from `(sprite as any).__v_props?.key` (internal API; useful for debugging/tools).
 
 ## Refs (imperative access)
 
@@ -49,7 +49,7 @@ Also supported:
 ## Hooks (lifecycle and logic)
 
 - `useState`: trigger a re-render when state changes; avoid calling setters during render.
-- `useStore(storeHook, selector?)`: subscribe to a Pinia-like store (see `src/lib/game-state.ts` and `src/scenes/main/stores/*`); pass a selector to reduce rerenders.
+- `useStore(storeHook, selector?)`: subscribe to a Pinia-like store (see `src/game-state/`); selectors are deep-mutation aware for `game-state` stores.
 - `useUpdate(cb)`: run code every Phaser `update` event; use it for movement, timers, despawn logic (see `Bullet.ts`, `EnemySpawner.ts`).
 - `useEffect` / `useLayoutEffect`: attach/detach listeners, set methods on sprites, subscribe to stores, etc.
 - `useScene`: access the current `Phaser.Scene` from inside a component.
@@ -59,10 +59,11 @@ Also supported:
 
 ## Interactivity and pointer events
 
-- Set `interactive: true` to enable input.
-- Optional props: `useHandCursor`, `onClick`, `onPointerOver`, `onPointerOut`.
-- For `rect`/`graphics`, always provide `width` and `height` so a hit area can be created.
-- For `container`, set `width`/`height` if you need a sized hit area.
+- You can attach input handlers to most nodes: `onClick`, `onPointerDown`, `onPointerUp`, `onPointerMove`, `onPointerOver`, `onPointerOut`, `onWheel`, `onDragStart`, `onDrag`, `onDragEnd`, `onDragEnter`, `onDragOver`, `onDragLeave`, `onDrop`.
+- `interactive` is optional: providing any handler (or `draggable` / `dropZone`) auto-enables interactivity, except where a hit area is required.
+- Drag handlers imply `draggable: true` by default (override with an explicit `draggable: false`).
+- `container` and `rect`/`graphics` need a hit area: provide `width`/`height` (or `w`/`h`) or pass `hitArea` / `hitAreaCallback`.
+- Extra config: `useHandCursor`, `cursor`, `pixelPerfect`, `alphaTolerance`, `draggable`, `dropZone`.
 
 ## Passing gameplay metadata to Phaser objects
 
@@ -71,5 +72,6 @@ Also supported:
 
 ## Debugging / validation
 
-- Start the game: `npm run dev`, then reproduce the loop you changed.
+- Run unit tests: `npm test` (or `npm run test:watch` while iterating).
+- Build the library: `npm run build`.
 - Type-check: `npx tsc -p tsconfig.json --noEmit`.
